@@ -57,9 +57,23 @@ To keep generation and break handling bounded, each item rule allows at most 64 
 
 Command rules support a probability, Y range, default execution target, and one or more commands. Individual commands can override their target with `player:` or `console:`. Mixed player/console command sequences retain their configured order across the required schedulers.
 
-Available placeholders are `%player%`, `%uuid%`, `%world%`, `%x%`, `%y%`, and `%z%`.
+Available built-in placeholders are `%player%`, `%uuid%`, `%world%`, `%x%`, `%y%`, and `%z%`. After the built-in pass, the whole command is handed to PlaceholderAPI when it is installed, so `eco give %player% %vault_eco_balance%` resolves. Rewards fire on an accepted block break, never per tick.
 
 `suppress_block_drop_on_custom_drop` controls whether an item or command reward replaces the normal configured base-block drop. `auto_pickup_drops` delivers rewards to the player's inventory and drops only inventory overflow at the mined block.
+
+## PlaceholderAPI
+
+HiddenOre registers the `hiddenore` expansion when PlaceholderAPI is installed. Because HiddenOre loads at `STARTUP` and PlaceholderAPI loads after worlds, registration also runs on PlaceholderAPI's own enable; the expansion is unregistered during drain, so BileTools hot unloads leave nothing serving against a dead plugin.
+
+| Key | Answers | Source |
+| --- | --- | --- |
+| `%hiddenore_available%` | `true` / `false` | the published runtime exists |
+| `%hiddenore_seeded%` | `true` / `false` | `veins.generation` is `seeded` |
+| `%hiddenore_drop-rules%` | count of configured drop rules | the published rule set |
+
+All three read one volatile field holding the immutable runtime record, so a resolution costs a hash lookup and a field read with no allocation, no lock, and no Bukkit call. Before the runtime is published, `available` answers `false` and the other two answer `---`. A misspelled key resolves to nothing and PlaceholderAPI re-emits the literal text, so typos stay visible.
+
+There are deliberately no vein, provenance, or per-player keys. The vein and provenance API contractually requires the owning world region thread and PlaceholderAPI never resolves on it; the nearby-vein query walks up to 289 chunks of block reads; and publishing vein positions to a scoreboard would turn an anti-xray plugin into an xray oracle. Those answers stay behind `/hiddenore`.
 
 ## Configuration safety and reloads
 
@@ -76,9 +90,19 @@ Both `/hiddenore reload` and the config file watcher use the same serialized glo
 
 ## API and integrations
 
-`HiddenOreAPI` exposes managed-block checks, a vein at a block, remaining same-chunk siblings, and nearby unconsumed veins. Single-block and sibling methods must run on the owning region thread. Nearby queries are capped at a 128-block radius and 4,096 results. On Folia, they inspect only chunks owned by the caller's current region; foreign-region chunks are skipped instead of being accessed unsafely.
+`HiddenOreService` is the supported entry point. Acquire it with `getServer().getServicesManager().getRegistration(HiddenOreService.class)`; it is registered during enable and unregistered during drain. It references only `org.bukkit`, `java` and HiddenOre's own `art.arcane.hiddenore.api` types, so a consumer needs neither VolmLib nor Adventure on its classpath. It exposes managed-block checks, a vein at a block, remaining same-chunk siblings, nearby unconsumed veins, per-block placement origin, per-chunk placement provenance, consumed-vein checks, and a region-ownership probe.
 
-`HiddenOreDropsEvent` lets integrations edit its mutable drop list, experience, and inventory-delivery flag. It is intentionally not cancellable because existing mining integrations perform irreversible progression work while handling it; block/drop protection is settled before the event is fired.
+`originOf` answers `PLAYER_PLACED`, `PRESUMED_GENERATED` or `UNTRACKED`. `PRESUMED_GENERATED` means "this material is tracked and there is no placement record" — it does not mean worldgen produced the block, which is why the constant is named for the presumption rather than for the conclusion. Blocks placed before HiddenOre was installed, before their material was added to `blocks:`, or during a failed enable all report `PRESUMED_GENERATED`. There is no backfill. Do not build an anti-grief rule that treats it as proof.
+
+`provenanceOf(Chunk)` returns an immutable `ChunkProvenance` snapshot: one persistent-data read at construction, then unlimited `contains(worldX, worldY, worldZ)` queries with no further I/O. Use it instead of calling `originOf` in a loop. `contains` is total — coordinates outside the chunk or outside world height answer `false` rather than throwing, so you can walk a 3x3 chunk area against one snapshot without guarding the edges. Compare against `chunk()` yourself if you need the strict reading.
+
+`veinAt`, `veinSiblings`, `originOf`, `provenanceOf` and `isVeinConsumed` throw `IllegalStateException` off-region — call `ownsRegion` first to branch instead of catching. Nearby queries are capped at a 128-block radius and 4,096 results and skip foreign-region and unloaded chunks rather than accessing them unsafely.
+
+`HiddenOreBreakEvent` fires once per accepted managed break, before any reward is computed, and is cancellable. Cancelling means HiddenOre contributes nothing: no hidden item, no experience, no reward command, no discovery sound, and the vein is not marked consumed. The block still yields its configured guaranteed drop and `HiddenOreDropsEvent` still fires, carrying only that drop, a null vein and zero experience. A listener that throws is logged and treated as no veto; a listener slower than 5ms is logged by plugin name without changing the outcome.
+
+`HiddenOreDropsEvent` lets integrations edit its mutable drop list, experience, and inventory-delivery flag. It is intentionally not cancellable because existing mining integrations perform irreversible progression work while handling it; block/drop protection is settled before the event is fired, and `HiddenOreBreakEvent` is the place to refuse. At most 256 stacks are spawned from one break; overflow is logged by plugin name.
+
+`HiddenOreAPI` remains reachable through the plugin main class for existing consumers. It implements `HiddenOreService` and behaves identically. New integrations should use the service: reaching `HiddenOreAPI` through the main class additionally requires VolmLib on the consumer's compile classpath.
 
 Adapt consumes this API for hidden-vein sensing, veinminer, autosmelt, gem polish, inventory delivery, and skill experience.
 

@@ -1,6 +1,7 @@
 package art.arcane.hiddenore.listeners;
 
 import art.arcane.hiddenore.HiddenOre;
+import art.arcane.hiddenore.api.BlockOrigin;
 import art.arcane.hiddenore.api.HiddenVein;
 import art.arcane.hiddenore.api.event.HiddenOreDropsEvent;
 import art.arcane.hiddenore.rules.ItemDropRule;
@@ -14,6 +15,7 @@ import art.arcane.hiddenore.vein.ChunkVeins;
 import art.arcane.hiddenore.vein.VeinBlock;
 import art.arcane.hiddenore.vein.VeinConfig;
 import art.arcane.volmlib.util.bukkit.ChunkPositionSet;
+import art.arcane.volmlib.util.bukkit.Placeholders;
 import art.arcane.volmlib.util.localization.MessageArgs;
 import art.arcane.volmlib.util.scheduling.FoliaScheduler;
 import art.arcane.volmlib.util.scheduling.SchedulerUtils;
@@ -45,12 +47,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class MiningListener implements Listener {
+  static final int MAX_DROP_STACKS = 256;
+
   private final HiddenOre plugin;
+  private final IntegrationEventGuard eventGuard;
   private final Map<BreakKey, BreakPreparation> pendingBreaks = new ConcurrentHashMap<>();
   private final Map<BlockDropItemEvent, DropPreparation> pendingDrops = new ConcurrentHashMap<>();
 
   public MiningListener(HiddenOre plugin) {
     this.plugin = plugin;
+    this.eventGuard = new IntegrationEventGuard(plugin.getLogger());
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -146,21 +152,24 @@ public class MiningListener implements Listener {
 
     VeinConfig veinConfig = rules.getVeinConfig();
     boolean placed = blocksHiddenRewards(veinConfig.allowPlacedBlocks, preparation.trackedPlacement());
+    boolean vetoed = eventGuard.isBreakVetoed(player, block, blockType, tool,
+        breakOrigin(preparation.trackedPlacement()));
+    RewardPath rewardPath = rewardPath(vetoed, placed, veinConfig.generation);
     List<ItemStack> drops = new ArrayList<>();
     int experience = 0;
     HiddenVein vein = null;
     List<CommandExec> commandsToExecute = List.of();
 
-    if (placed) {
-      if (debug) {
-        HiddenOre.sendMessage(player, messages.component(
-            Messages.DEBUG_PLAYER_PLACED,
-            MessageArgs.builder()
-                .untrusted("block", blockType.name().toLowerCase(Locale.ROOT))
-                .build()
-        ));
-      }
-    } else if (veinConfig.generation == VeinConfig.GenerationMode.PURE_RANDOM) {
+    if (placed && debug) {
+      HiddenOre.sendMessage(player, messages.component(
+          Messages.DEBUG_PLAYER_PLACED,
+          MessageArgs.builder()
+              .untrusted("block", blockType.name().toLowerCase(Locale.ROOT))
+              .build()
+      ));
+    }
+
+    if (rewardPath == RewardPath.PURE_RANDOM) {
       ToolTier tier = ToolTier.fromMaterial(tool.getType());
       for (ItemDropRule rule : rules.getItemRules(y)) {
         double roll = ThreadLocalRandom.current().nextDouble();
@@ -196,15 +205,14 @@ public class MiningListener implements Listener {
       }
 
       commandsToExecute = rollCommands(player, rules, messages, y, debug);
-    } else {
+    } else if (rewardPath == RewardPath.SEEDED) {
       ChunkVeins veins = runtime.veinGenerator().get(world, blockX >> 4, blockZ >> 4);
       int packed = ChunkPositionSet.pack(blockX & 15, y, blockZ & 15, world.getMinHeight());
       VeinBlock veinBlock = veins.get(packed);
 
       if (veinBlock != null && !consumedVeinsContains(block)) {
         boolean firstOfVein = isFirstOfVein(block, veins, veinBlock, packed);
-        HiddenOreTelemetry.countPdcWrite();
-        plugin.getConsumedVeins().add(block);
+        claimVein(rewardPath, block);
         ItemDropRule rule = veinBlock.rule();
         ToolTier tier = ToolTier.fromMaterial(tool.getType());
 
@@ -253,10 +261,16 @@ public class MiningListener implements Listener {
 
     executeCommands(player, blockLocation, commandsToExecute);
 
-    for (ItemStack stack : dropsEvent.getDrops()) {
-      if (stack == null || stack.getType().isAir() || stack.getAmount() <= 0) {
+    List<ItemStack> resolvedDrops = dropsEvent.getDrops();
+    int candidateStacks = resolvedDrops.size();
+    int examinedStacks = dropExaminationBound(candidateStacks);
+    int spawned = 0;
+    for (int index = 0; index < examinedStacks; index++) {
+      ItemStack stack = resolvedDrops.get(index);
+      if (!eventGuard.isSpawnableDrop(stack)) {
         continue;
       }
+      spawned++;
       HiddenOreTelemetry.countDrop();
       if (dropsEvent.isToInventory()) {
         HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(stack);
@@ -264,6 +278,10 @@ public class MiningListener implements Listener {
       } else {
         world.dropItem(centerLoc, stack);
       }
+    }
+
+    if (candidateStacks > examinedStacks) {
+      eventGuard.reportDropFlood(candidateStacks, spawned);
     }
 
     int totalExp = dropsEvent.getExperience();
@@ -274,6 +292,36 @@ public class MiningListener implements Listener {
 
   static boolean blocksHiddenRewards(boolean allowPlacedBlocks, boolean trackedPlacement) {
     return !allowPlacedBlocks && trackedPlacement;
+  }
+
+  static BlockOrigin breakOrigin(boolean trackedPlacement) {
+    return trackedPlacement ? BlockOrigin.PLAYER_PLACED : BlockOrigin.PRESUMED_GENERATED;
+  }
+
+  static RewardPath rewardPath(boolean vetoed, boolean placed, VeinConfig.GenerationMode generation) {
+    if (vetoed || placed) {
+      return RewardPath.NONE;
+    }
+    return switch (generation) {
+      case PURE_RANDOM -> RewardPath.PURE_RANDOM;
+      case SEEDED -> RewardPath.SEEDED;
+    };
+  }
+
+  static boolean consumesVein(RewardPath rewardPath) {
+    return rewardPath == RewardPath.SEEDED;
+  }
+
+  static int dropExaminationBound(int candidateStacks) {
+    return Math.min(Math.max(candidateStacks, 0), MAX_DROP_STACKS);
+  }
+
+  private void claimVein(RewardPath rewardPath, Block block) {
+    if (!consumesVein(rewardPath)) {
+      return;
+    }
+    HiddenOreTelemetry.countPdcWrite();
+    plugin.getConsumedVeins().add(block);
   }
 
   static boolean shouldDiscardBreakPreparation(boolean cancelled, boolean dropItems, boolean blockAir) {
@@ -428,6 +476,12 @@ public class MiningListener implements Listener {
   record ConsoleSalvage(List<CommandExec> commands, int skippedPlayerGroups) {
   }
 
+  enum RewardPath {
+    NONE,
+    PURE_RANDOM,
+    SEEDED
+  }
+
   static int commandGroupEnd(List<CommandExec> commands, int startIndex) {
     ItemDropRule.ExecutionTarget target = commands.get(startIndex).target;
     int endIndex = startIndex + 1;
@@ -443,17 +497,25 @@ public class MiningListener implements Listener {
     }
   }
 
-  private String applyCommandPlaceholders(String raw, Player player, Location loc) {
+  static String applyCommandPlaceholders(String raw, Player player, Location loc) {
+    World world = loc.getWorld();
+    String builtIn = applyBuiltInPlaceholders(raw, player.getName(), player.getUniqueId().toString(),
+        loc.getBlockX(), loc.getBlockY(), loc.getBlockZ(), world == null ? "" : world.getName());
+    return Placeholders.setPlaceholders(player, builtIn);
+  }
+
+  static String applyBuiltInPlaceholders(String raw, String playerName, String playerId, int blockX, int blockY,
+                                         int blockZ, String worldName) {
     if (raw == null) {
       return "";
     }
     String result = raw;
-    result = result.replace("%player%", player.getName());
-    result = result.replace("%uuid%", player.getUniqueId().toString());
-    result = result.replace("%x%", String.valueOf(loc.getBlockX()));
-    result = result.replace("%y%", String.valueOf(loc.getBlockY()));
-    result = result.replace("%z%", String.valueOf(loc.getBlockZ()));
-    result = result.replace("%world%", loc.getWorld() == null ? "" : loc.getWorld().getName());
+    result = result.replace("%player%", playerName);
+    result = result.replace("%uuid%", playerId);
+    result = result.replace("%x%", String.valueOf(blockX));
+    result = result.replace("%y%", String.valueOf(blockY));
+    result = result.replace("%z%", String.valueOf(blockZ));
+    result = result.replace("%world%", worldName);
     return result;
   }
 

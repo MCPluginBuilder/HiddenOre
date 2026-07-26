@@ -3,6 +3,10 @@ package art.arcane.hiddenore.api;
 import org.bukkit.Material;
 
 public record HiddenVein(int x, int y, int z, int veinId, Material item, Material oreDisplay) {
+  public boolean seeded() {
+    return veinId >= 0;
+  }
+
   public static Material oreDisplayFor(Material item, int y) {
     Material surface = switch (item) {
       case COAL -> Material.COAL_ORE;

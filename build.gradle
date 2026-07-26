@@ -73,6 +73,9 @@ repositories {
         url = uri('https://repo.papermc.io/repository/maven-public/')
     }
     maven {
+        url = uri('https://repo.extendedclip.com/releases/')
+    }
+    maven {
         url = uri('https://jitpack.io')
         if (jitpackAuthToken != null) {
             credentials {
@@ -86,6 +89,9 @@ repositories {
 dependencies {
     implementation('de.crazydev22.slimjar.helper:spigot:2.1.9')
     compileOnly(libs.paper)
+    compileOnly('me.clip:placeholderapi:2.11.6') {
+        transitive = false
+    }
     implementation(volmLibCoordinate) {
         changing = true
         transitive = false
@@ -100,6 +106,9 @@ dependencies {
     }
     testImplementation('junit:junit:4.13.2')
     testImplementation(libs.paper)
+    testImplementation('me.clip:placeholderapi:2.11.6') {
+        transitive = false
+    }
 }
 
 java {

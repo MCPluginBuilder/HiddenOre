@@ -1,6 +1,7 @@
 package art.arcane.hiddenore;
 
 import art.arcane.hiddenore.api.HiddenOreAPI;
+import art.arcane.hiddenore.api.HiddenOreService;
 import art.arcane.hiddenore.generation.GenerationRules;
 import art.arcane.hiddenore.listeners.MiningListener;
 import art.arcane.hiddenore.listeners.PlacementListener;
@@ -8,6 +9,7 @@ import art.arcane.hiddenore.listeners.WorldLifecycleListener;
 import art.arcane.hiddenore.rules.MiningRuleManager;
 import art.arcane.hiddenore.service.HiddenOreCommandService;
 import art.arcane.hiddenore.service.HiddenOreIntegrationService;
+import art.arcane.hiddenore.service.HiddenOrePlaceholderService;
 import art.arcane.hiddenore.service.HiddenOreTelemetry;
 import art.arcane.hiddenore.util.common.Messages;
 import art.arcane.hiddenore.util.common.SplashScreen;
@@ -24,6 +26,7 @@ import org.bukkit.Sound;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -40,11 +43,13 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   private ConfigWatcher configWatcher;
   private HiddenOreCommandService commandService;
   private HiddenOreIntegrationService integrationService;
+  private HiddenOrePlaceholderService placeholderService;
   private ChunkPositionSet placedBlocks;
   private ChunkPositionSet consumedVeins;
   private HiddenOreAPI api;
   private volatile RuntimeState runtimeState;
   private volatile boolean draining;
+  private boolean serviceRegistered;
 
   public HiddenOre() {
     getLogger().info("Loading dependencies...");
@@ -77,6 +82,11 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       commandService.register();
       integrationService = new HiddenOreIntegrationService(this);
       integrationService.register();
+      placeholderService = new HiddenOrePlaceholderService(this);
+      placeholderService.register();
+      getServer().getServicesManager().register(HiddenOreService.class, api, this, ServicePriority.Normal);
+      serviceRegistered = true;
+      getLogger().info("HiddenOre service registered for third-party integrations");
       configWatcher = new ConfigWatcher(this);
       configWatcher.start();
       SplashScreen.print(this, true, "");
@@ -126,6 +136,14 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       return;
     }
     draining = true;
+    if (serviceRegistered) {
+      serviceRegistered = false;
+      getServer().getServicesManager().unregister(HiddenOreService.class, api);
+    }
+    if (placeholderService != null) {
+      placeholderService.unregister();
+      placeholderService = null;
+    }
     if (integrationService != null) {
       integrationService.unregister();
       integrationService = null;

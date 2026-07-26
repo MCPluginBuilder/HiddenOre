@@ -8,6 +8,7 @@ import art.arcane.hiddenore.vein.VeinBlock;
 import art.arcane.hiddenore.vein.VeinConfig;
 import art.arcane.volmlib.util.bukkit.ChunkPositionSet;
 import art.arcane.volmlib.util.scheduling.FoliaScheduler;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -16,9 +17,7 @@ import org.bukkit.block.Block;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class HiddenOreAPI {
-  public static final int MAX_NEARBY_RADIUS = 128;
-  public static final int MAX_NEARBY_RESULTS = 4096;
+public final class HiddenOreAPI implements HiddenOreService {
   private static final int[] EMPTY_POSITIONS = new int[0];
 
   private final HiddenOre plugin;
@@ -27,14 +26,63 @@ public final class HiddenOreAPI {
     this.plugin = plugin;
   }
 
+  @Override
   public boolean isManagedBase(Material material) {
     return plugin.getRuntimeState().ruleManager().getGuaranteedDrop(material) != null;
   }
 
+  @Override
   public boolean isSeeded() {
     return plugin.getRuntimeState().ruleManager().getVeinConfig().generation == VeinConfig.GenerationMode.SEEDED;
   }
 
+  @Override
+  public boolean ownsRegion(World world, int chunkX, int chunkZ) {
+    return ownsChunk(world, chunkX, chunkZ);
+  }
+
+  @Override
+  public BlockOrigin originOf(Block block) {
+    if (plugin.isDraining()) {
+      return BlockOrigin.UNTRACKED;
+    }
+    MiningRuleManager rules = plugin.getRuntimeState().ruleManager();
+    World world = block.getWorld();
+    requireOwnedChunk(world, block.getX() >> 4, block.getZ() >> 4);
+    if (!isManagedBase(block.getType(), rules)) {
+      return BlockOrigin.UNTRACKED;
+    }
+    HiddenOreTelemetry.countPdcRead();
+    return plugin.getPlacedBlocks().contains(block) ? BlockOrigin.PLAYER_PLACED : BlockOrigin.PRESUMED_GENERATED;
+  }
+
+  @Override
+  public ChunkProvenance provenanceOf(Chunk chunk) {
+    World world = chunk.getWorld();
+    int chunkX = chunk.getX();
+    int chunkZ = chunk.getZ();
+    requireOwnedChunk(world, chunkX, chunkZ);
+    int[] positions;
+    if (plugin.isDraining()) {
+      positions = EMPTY_POSITIONS;
+    } else {
+      HiddenOreTelemetry.countPdcRead();
+      positions = plugin.getPlacedBlocks().snapshot(chunk);
+    }
+    return new PlacementProvenance(chunk, chunkX, chunkZ, world.getMinHeight(), world.getMaxHeight(), positions);
+  }
+
+  @Override
+  public boolean isVeinConsumed(Block block) {
+    if (plugin.isDraining()) {
+      return false;
+    }
+    requireOwnedChunk(block.getWorld(), block.getX() >> 4, block.getZ() >> 4);
+    HiddenOreTelemetry.countPdcRead();
+    return plugin.getConsumedVeins().contains(block);
+  }
+
+  @Override
   public HiddenVein veinAt(Block block) {
     if (plugin.isDraining()) {
       return null;
@@ -67,6 +115,7 @@ public final class HiddenOreAPI {
     return toVein(world, chunkX, chunkZ, veinBlock);
   }
 
+  @Override
   public List<HiddenVein> veinSiblings(Block block) {
     if (plugin.isDraining()) {
       return List.of();
@@ -118,6 +167,7 @@ public final class HiddenOreAPI {
     return List.copyOf(result);
   }
 
+  @Override
   public List<HiddenVein> veinsNear(Location center, int radius) {
     if (plugin.isDraining()) {
       return List.of();

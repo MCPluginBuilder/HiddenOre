@@ -1,7 +1,9 @@
 package art.arcane.hiddenore.listeners;
 
+import art.arcane.hiddenore.api.BlockOrigin;
 import art.arcane.hiddenore.api.event.HiddenOreDropsEvent;
 import art.arcane.hiddenore.rules.ItemDropRule;
+import art.arcane.hiddenore.vein.VeinConfig;
 import org.bukkit.Material;
 import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
@@ -68,6 +70,65 @@ public class MiningListenerContractTest {
     assertFalse(MiningListener.blocksHiddenRewards(true, false));
     assertFalse(MiningListener.blocksHiddenRewards(true, true));
     assertTrue(MiningListener.blocksHiddenRewards(false, true));
+  }
+
+  @Test
+  public void cancelledBreak_neverReachesAPathThatConsumesAVein() {
+    for (boolean placed : new boolean[]{false, true}) {
+      for (VeinConfig.GenerationMode mode : VeinConfig.GenerationMode.values()) {
+        MiningListener.RewardPath path = MiningListener.rewardPath(true, placed, mode);
+
+        assertEquals(MiningListener.RewardPath.NONE, path);
+        assertFalse(MiningListener.consumesVein(path));
+      }
+    }
+  }
+
+  @Test
+  public void rewardPath_followsTheConfiguredModeOnlyForAnUnvetoedNaturalBreak() {
+    assertEquals(MiningListener.RewardPath.SEEDED,
+        MiningListener.rewardPath(false, false, VeinConfig.GenerationMode.SEEDED));
+    assertEquals(MiningListener.RewardPath.PURE_RANDOM,
+        MiningListener.rewardPath(false, false, VeinConfig.GenerationMode.PURE_RANDOM));
+    assertEquals(MiningListener.RewardPath.NONE,
+        MiningListener.rewardPath(false, true, VeinConfig.GenerationMode.SEEDED));
+    assertEquals(MiningListener.RewardPath.NONE,
+        MiningListener.rewardPath(false, true, VeinConfig.GenerationMode.PURE_RANDOM));
+  }
+
+  @Test
+  public void veinConsumption_isReachableOnlyFromTheSeededPath() {
+    assertTrue(MiningListener.consumesVein(MiningListener.RewardPath.SEEDED));
+    assertFalse(MiningListener.consumesVein(MiningListener.RewardPath.PURE_RANDOM));
+    assertFalse(MiningListener.consumesVein(MiningListener.RewardPath.NONE));
+  }
+
+  @Test
+  public void breakOrigin_reportsPlacementTrackingWithoutCollapsingIntoTheRewardDecision() {
+    assertEquals(BlockOrigin.PLAYER_PLACED, MiningListener.breakOrigin(true));
+    assertEquals(BlockOrigin.PRESUMED_GENERATED, MiningListener.breakOrigin(false));
+
+    assertEquals(BlockOrigin.PLAYER_PLACED, MiningListener.breakOrigin(true));
+    assertFalse(MiningListener.blocksHiddenRewards(true, true));
+  }
+
+  @Test
+  public void dropSpawning_boundsTheEntriesItExaminesNotOnlyTheOnesItSpawns() {
+    assertEquals(0, MiningListener.dropExaminationBound(0));
+    assertEquals(3, MiningListener.dropExaminationBound(3));
+    assertEquals(MiningListener.MAX_DROP_STACKS - 1,
+        MiningListener.dropExaminationBound(MiningListener.MAX_DROP_STACKS - 1));
+    assertEquals(MiningListener.MAX_DROP_STACKS,
+        MiningListener.dropExaminationBound(MiningListener.MAX_DROP_STACKS));
+    assertEquals(MiningListener.MAX_DROP_STACKS,
+        MiningListener.dropExaminationBound(MiningListener.MAX_DROP_STACKS + 1));
+    assertEquals(MiningListener.MAX_DROP_STACKS, MiningListener.dropExaminationBound(1_000_000));
+  }
+
+  @Test
+  public void dropSpawning_treatsAnImpossibleCandidateCountAsNothingToExamine() {
+    assertEquals(0, MiningListener.dropExaminationBound(-1));
+    assertEquals(0, MiningListener.dropExaminationBound(Integer.MIN_VALUE));
   }
 
   @Test
