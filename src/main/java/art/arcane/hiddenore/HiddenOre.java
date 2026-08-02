@@ -22,6 +22,8 @@ import io.github.slimjar.app.builder.SpigotApplicationBuilder;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
 import org.bstats.bukkit.Metrics;
+import org.bstats.charts.SimplePie;
+import org.bstats.charts.SingleLineChart;
 import org.bukkit.Sound;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -47,6 +49,9 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   private ChunkPositionSet placedBlocks;
   private ChunkPositionSet consumedVeins;
   private HiddenOreAPI api;
+  // bstats.org plugin id; 0 disables submission until the id is assigned
+  private static final int BSTATS_PLUGIN_ID = 0;
+  private Metrics metrics;
   private volatile RuntimeState runtimeState;
   private volatile boolean draining;
   private boolean serviceRegistered;
@@ -113,11 +118,48 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       }
     }
 
-    try {
-      new Metrics(this, 27610);
-    } catch (RuntimeException exception) {
-      getLogger().log(Level.WARNING, "Failed to initialize HiddenOre metrics", exception);
+    if (BSTATS_PLUGIN_ID > 0) {
+      try {
+        Metrics activeMetrics = new Metrics(this, BSTATS_PLUGIN_ID);
+        registerMetricsCharts(activeMetrics);
+        metrics = activeMetrics;
+      } catch (RuntimeException exception) {
+        getLogger().log(Level.WARNING, "Failed to initialize HiddenOre metrics", exception);
+      }
     }
+  }
+
+  // Chart callables run on the bStats daemon thread, never main. Every accessor here reads
+  // immutable runtime state or a synchronized cache; returning null skips that submission.
+  private void registerMetricsCharts(Metrics target) {
+    target.addCustomChart(new SingleLineChart("drop_rules", () -> {
+      RuntimeState state = runtimeStateOrNull();
+      if (state == null) {
+        return null;
+      }
+      return state.ruleManager().getAllDropRules().size();
+    }));
+    target.addCustomChart(new SimplePie("vein_generation_mode", () -> {
+      RuntimeState state = runtimeStateOrNull();
+      if (state == null) {
+        return null;
+      }
+      return state.ruleManager().getVeinConfig().generation.name();
+    }));
+    target.addCustomChart(new SimplePie("ore_removal", () -> {
+      GenerationRules rules = generationRules;
+      if (rules == null || runtimeStateOrNull() == null) {
+        return null;
+      }
+      return String.valueOf(rules.isEnabled());
+    }));
+    target.addCustomChart(new SingleLineChart("cached_vein_chunks", () -> {
+      RuntimeState state = runtimeStateOrNull();
+      if (state == null) {
+        return null;
+      }
+      return state.veinGenerator().cachedChunkCount();
+    }));
   }
 
   @Override
@@ -136,6 +178,15 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       return;
     }
     draining = true;
+    // Stop the bStats scheduler first so no chart callable observes a half-drained runtime.
+    if (metrics != null) {
+      try {
+        metrics.shutdown();
+      } catch (Throwable ex) {
+        getLogger().log(Level.WARNING, "Error shutting down HiddenOre metrics", ex);
+      }
+      metrics = null;
+    }
     if (serviceRegistered) {
       serviceRegistered = false;
       getServer().getServicesManager().unregister(HiddenOreService.class, api);
