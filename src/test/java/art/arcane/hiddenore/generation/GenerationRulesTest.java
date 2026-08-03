@@ -59,6 +59,28 @@ public class GenerationRulesTest {
         config("ore-removal.global.DIAMOND_ORE", "yes"));
   }
 
+  @Test
+  public void regionBounds_deriveFromPopulatedChunkWithoutPaperAccessors() {
+    GenerationRules.RegionBounds bounds = GenerationRules.RegionBounds.of(5, -3, 16);
+
+    assertEquals(1, bounds.bufferChunks());
+    assertEquals(64, bounds.xMin());
+    assertEquals(-64, bounds.zMin());
+    assertEquals(112, bounds.xMax());
+    assertEquals(-16, bounds.zMax());
+  }
+
+  @Test
+  public void regionBounds_zeroBufferCoversOnlyPopulatedChunk() {
+    GenerationRules.RegionBounds bounds = GenerationRules.RegionBounds.of(0, 0, 0);
+
+    assertEquals(0, bounds.bufferChunks());
+    assertEquals(0, bounds.xMin());
+    assertEquals(0, bounds.zMin());
+    assertEquals(16, bounds.xMax());
+    assertEquals(16, bounds.zMax());
+  }
+
   private static YamlConfiguration config(String path, Object value) {
     YamlConfiguration config = new YamlConfiguration();
     config.set(path, value);

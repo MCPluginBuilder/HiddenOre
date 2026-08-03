@@ -97,28 +97,20 @@ public final class GenerationRules extends BlockPopulator implements Listener {
       return;
     }
 
-    int buffer = region.getBuffer() >> 4;
-    int centerX = region.getCenterChunkX();
-    int centerZ = region.getCenterChunkZ();
+    // Spigot's LimitedRegion lacks Paper's getCenter* accessors; the populated chunk is the region center.
+    RegionBounds bounds = RegionBounds.of(chunkX, chunkZ, region.getBuffer());
     int yMin = world.getMinHeight();
     int yMax = world.getMaxHeight() - 1;
 
-    int xCenter = region.getCenterBlockX();
-    int zCenter = region.getCenterBlockZ();
-    int xMin = xCenter - region.getBuffer();
-    int zMin = zCenter - region.getBuffer();
-    int xMax = xCenter + region.getBuffer() + 16;
-    int zMax = zCenter + region.getBuffer() + 16;
-
     long replaced = 0L;
-    for (int cX = -buffer; cX <= buffer; cX++) {
-      for (int cZ = -buffer; cZ <= buffer; cZ++) {
-        int bX = (cX + centerX) << 4;
-        int bZ = (cZ + centerZ) << 4;
-        int minX = Math.max(xMin, bX);
-        int maxX = Math.min(xMax, bX + 16);
-        int minZ = Math.max(zMin, bZ);
-        int maxZ = Math.min(zMax, bZ + 16);
+    for (int cX = -bounds.bufferChunks(); cX <= bounds.bufferChunks(); cX++) {
+      for (int cZ = -bounds.bufferChunks(); cZ <= bounds.bufferChunks(); cZ++) {
+        int bX = (cX + chunkX) << 4;
+        int bZ = (cZ + chunkZ) << 4;
+        int minX = Math.max(bounds.xMin(), bX);
+        int maxX = Math.min(bounds.xMax(), bX + 16);
+        int minZ = Math.max(bounds.zMin(), bZ);
+        int maxZ = Math.min(bounds.zMax(), bZ + 16);
 
         for (int y = yMax; y >= yMin; y--) {
           for (int x = minX; x < maxX; x++) {
@@ -268,6 +260,18 @@ public final class GenerationRules extends BlockPopulator implements Listener {
 
   private static IllegalArgumentException invalid(String path, String message) {
     return new IllegalArgumentException(path + ": " + message);
+  }
+
+  record RegionBounds(int bufferChunks, int xMin, int zMin, int xMax, int zMax) {
+    static RegionBounds of(int chunkX, int chunkZ, int bufferBlocks) {
+      int xCenter = chunkX << 4;
+      int zCenter = chunkZ << 4;
+      return new RegionBounds(bufferBlocks >> 4,
+          xCenter - bufferBlocks,
+          zCenter - bufferBlocks,
+          xCenter + bufferBlocks + 16,
+          zCenter + bufferBlocks + 16);
+    }
   }
 
   public record GenerationPolicy(boolean enabled,
