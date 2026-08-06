@@ -47,8 +47,8 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   private ChunkPositionSet placedBlocks;
   private ChunkPositionSet consumedVeins;
   private HiddenOreAPI api;
-  // bstats.org plugin id; 0 disables submission until the id is assigned
-  private static final int BSTATS_PLUGIN_ID = 0;
+  // bstats.org plugin id
+  private static final int BSTATS_PLUGIN_ID = 27610;
   // HiddenOreMetrics owns all bstats types; never reference them from this class (slimjar link trap)
   private HiddenOreMetrics metrics;
   private volatile RuntimeState runtimeState;
