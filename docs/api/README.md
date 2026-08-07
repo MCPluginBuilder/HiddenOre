@@ -64,7 +64,7 @@ artifact — HiddenOre's own classes and nothing else. The `HiddenOre-<version>-
 deployable that goes in `plugins/`. Either one satisfies the compiler; prefer the thin one so your build cannot
 accidentally resolve a shaded internal type.
 
-HiddenOre requires Java 25 and a Paper API 26.2 server, and declares `folia-supported: true`. Its classes are
+HiddenOre requires Java 25 and a Paper API 26.1.2 - 26.2 server, and declares `folia-supported: true`. Its classes are
 Java 25 bytecode, so your own build needs JDK 25 or newer to read them, whatever release level you target.
 
 ---

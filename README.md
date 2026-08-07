@@ -9,7 +9,7 @@ Canonical English is defined in the typed Java catalog at `src/main/java/art/arc
 ## Requirements
 
 - Java 25
-- Minecraft/Paper API 26.2
+- Minecraft/Paper API 26.1.2 - 26.2
 - Paper, Purpur, Folia, or Spigot-compatible server software
 
 ## How it works
