@@ -17,16 +17,20 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 public final class ConfigWatcher implements Runnable {
   private static final long RELOAD_DEBOUNCE_MILLIS = 250L;
+  private static final long POLL_TIMEOUT_MILLIS = 1_000L;
 
   private final HiddenOre plugin;
   private final Set<String> watchedFiles;
   private final Path dir;
+  private final Map<String, String> lastSignatures = new HashMap<>();
   private volatile boolean running;
   private volatile Thread thread;
   private volatile WatchService watchService;
@@ -83,11 +87,12 @@ public final class ConfigWatcher implements Runnable {
     try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
       watchService = watcher;
       dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE);
+      captureSignatures();
 
       while (running && plugin.isEnabled()) {
         WatchKey key;
         try {
-          key = watcher.take();
+          key = watcher.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
           Thread.currentThread().interrupt();
           if (running) {
@@ -95,13 +100,17 @@ public final class ConfigWatcher implements Runnable {
           }
           break;
         }
-        boolean shouldReload = containsWatchedChange(key);
-        if (!key.reset()) {
+        boolean shouldReload = key != null && containsWatchedChange(key);
+        if (key != null && !key.reset()) {
           break;
+        }
+        if (!shouldReload) {
+          shouldReload = signaturesChanged();
         }
         if (shouldReload) {
           awaitQuietPeriod(watcher);
           if (running && plugin.isEnabled()) {
+            captureSignatures();
             if (!SchedulerUtils.runGlobal(plugin, this::reloadAndNotifyOps)) {
               plugin.getLogger().warning("Failed to schedule config reload");
             }
@@ -155,6 +164,35 @@ public final class ConfigWatcher implements Runnable {
           notification.volume(), notification.pitch()))) {
         plugin.getLogger().warning("Failed to schedule a config reload notification for an online player");
       }
+    }
+  }
+
+  private void captureSignatures() {
+    for (String name : watchedFiles) {
+      lastSignatures.put(name, signature(dir.resolve(name)));
+    }
+  }
+
+  private boolean signaturesChanged() {
+    boolean changed = false;
+    for (String name : watchedFiles) {
+      String current = signature(dir.resolve(name));
+      String previous = lastSignatures.get(name);
+      if (previous != null && !previous.equals(current)) {
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private String signature(Path file) {
+    if (file == null || !Files.isRegularFile(file)) {
+      return "missing";
+    }
+    try {
+      return Files.getLastModifiedTime(file).toMillis() + ":" + Files.size(file);
+    } catch (IOException exception) {
+      return "unreadable";
     }
   }
 
