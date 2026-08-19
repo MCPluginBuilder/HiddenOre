@@ -240,7 +240,7 @@ public class MessagesTest {
     language.set("director.help.no_parameters", "Keine Parameter.");
     messages.reload(language, "language.yml");
     DirectorRuntimeEngine engine = DirectorEngineFactory.create(new HelpCommands());
-    DirectorMiniMenu.DirectorHelpPage page = DirectorMiniMenu.resolveHelp(engine, List.of(), 8).orElseThrow();
+    DirectorMiniMenu.DirectorHelpPage page = DirectorMiniMenu.resolveHelp(engine, List.of()).orElseThrow();
     List<String> rendered = DirectorMiniMenu.render(
         page,
         DirectorMiniMenu.Theme.reactBlue(),

@@ -127,13 +127,13 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
   }
 
   private void sendRootHelp(CommandSender sender) {
-    Optional<DirectorMiniMenu.DirectorHelpPage> page = DirectorMiniMenu.resolveHelp(getDirector(), List.of(), 8);
+    Optional<DirectorMiniMenu.DirectorHelpPage> page = DirectorMiniMenu.resolveHelp(getDirector(), List.of());
     if (page.isEmpty()) {
       return;
     }
 
     DirectorMiniMenu.Theme helpTheme = DirectorMiniMenu.Theme.fromDirectorTheme(theme);
-    DirectorMiniMenu.deliver(sender, DirectorMiniMenu.render(page.get(), helpTheme, plugin.getMessages().directorResolver()));
+    DirectorMiniMenu.deliver(sender, page.get(), helpTheme, plugin.getMessages().directorResolver());
   }
 
   @Nullable
@@ -147,14 +147,14 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
   }
 
   private boolean sendHelpIfRequested(CommandSender sender, String[] args) {
-    Optional<DirectorMiniMenu.DirectorHelpPage> page = DirectorMiniMenu.resolveHelp(getDirector(), Arrays.asList(args), 8);
+    Optional<DirectorMiniMenu.DirectorHelpPage> page = DirectorMiniMenu.resolveHelp(getDirector(), Arrays.asList(args));
     if (page.isEmpty()) {
       return false;
     }
 
     DirectorMiniMenu.Theme helpTheme = DirectorMiniMenu.Theme.fromDirectorTheme(theme);
     Messages messages = plugin.getMessages();
-    DirectorMiniMenu.deliver(sender, DirectorMiniMenu.render(page.get(), helpTheme, messages.directorResolver()));
+    DirectorMiniMenu.deliver(sender, page.get(), helpTheme, messages.directorResolver());
 
     return true;
   }
