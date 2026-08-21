@@ -9,6 +9,7 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -17,7 +18,13 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -25,15 +32,30 @@ import java.util.logging.Level;
 
 public final class ConfigWatcher implements Runnable {
   private static final long RELOAD_DEBOUNCE_MILLIS = 250L;
+  private static final long RELOAD_COOLDOWN_MILLIS = 3_000L;
   private static final long POLL_TIMEOUT_MILLIS = 1_000L;
+  private static final long WATCHER_RETRY_MILLIS = 1_000L;
+  private static final long WATCHER_FAILURE_LOG_INTERVAL_MILLIS = 30_000L;
+  private static final long MAX_CONFIG_BYTES = 8L * 1024L * 1024L;
 
   private final HiddenOre plugin;
   private final Set<String> watchedFiles;
   private final Path dir;
   private final Map<String, String> lastSignatures = new HashMap<>();
+  private final Set<String> oversizedWarnings = new HashSet<>();
+  private final Object reloadQueueLock = new Object();
   private volatile boolean running;
   private volatile Thread thread;
   private volatile WatchService watchService;
+  private boolean reloadPending;
+  private boolean reloadScheduled;
+  private ReloadSnapshot pendingReload;
+  private ReloadSnapshot scheduledReload;
+  private boolean reloadCompleted;
+  private long lastReloadCompletedAtNanos;
+  private long lastWatcherFailureLogAtNanos;
+  private volatile long reloadGeneration;
+  private long scheduledReloadGeneration;
 
   public ConfigWatcher(HiddenOre plugin) {
     this.plugin = plugin;
@@ -41,12 +63,25 @@ public final class ConfigWatcher implements Runnable {
     this.watchedFiles = Set.of("config.yml", "language.yml");
   }
 
-  public synchronized void start() {
+  public synchronized void startWithAppliedSnapshot(String configYaml, String languageYaml) {
     if (thread != null && thread.isAlive()) {
       return;
     }
 
+    Map<String, String> appliedSignatures = appliedSignatures(configYaml, languageYaml);
     running = true;
+    synchronized (reloadQueueLock) {
+      reloadPending = false;
+      reloadScheduled = false;
+      pendingReload = null;
+      scheduledReload = null;
+      reloadCompleted = false;
+      lastReloadCompletedAtNanos = 0L;
+      reloadGeneration++;
+      scheduledReloadGeneration = reloadGeneration;
+      lastSignatures.clear();
+      lastSignatures.putAll(appliedSignatures);
+    }
     Thread watcherThread = new Thread(this, "HiddenOre-ConfigWatcher");
     watcherThread.setDaemon(true);
     thread = watcherThread;
@@ -55,6 +90,12 @@ public final class ConfigWatcher implements Runnable {
 
   public synchronized void stop() {
     running = false;
+    synchronized (reloadQueueLock) {
+      reloadPending = false;
+      pendingReload = null;
+      scheduledReload = null;
+      reloadGeneration++;
+    }
 
     WatchService watcher = watchService;
     if (watcher != null) {
@@ -84,52 +125,40 @@ public final class ConfigWatcher implements Runnable {
 
   @Override
   public void run() {
-    try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
-      watchService = watcher;
-      dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE);
-      captureSignatures();
-
-      while (running && plugin.isEnabled()) {
-        WatchKey key;
+    try {
+      while (running && plugin.isEnabled() && !Thread.currentThread().isInterrupted()) {
         try {
-          key = watcher.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+          watchDirectory();
+        } catch (ClosedWatchServiceException exception) {
+          if (running) {
+            reportWatcherFailure("HiddenOre config watcher closed unexpectedly; retrying", exception);
+          }
+        } catch (IOException exception) {
+          if (running) {
+            reportWatcherFailure("HiddenOre config watcher failed; retrying", exception);
+          }
         } catch (InterruptedException exception) {
           Thread.currentThread().interrupt();
           if (running) {
             plugin.getLogger().log(Level.WARNING, "HiddenOre config watcher was interrupted unexpectedly", exception);
           }
           break;
+        } finally {
+          watchService = null;
         }
-        boolean shouldReload = key != null && containsWatchedChange(key);
-        if (key != null && !key.reset()) {
+
+        if (!running || !plugin.isEnabled() || Thread.currentThread().isInterrupted()) {
           break;
         }
-        if (!shouldReload) {
-          shouldReload = signaturesChanged();
+        try {
+          reconcileWithoutEvents();
+        } catch (IOException exception) {
+          reportWatcherFailure("HiddenOre config reconciliation failed; retrying", exception);
         }
-        if (shouldReload) {
-          awaitQuietPeriod(watcher);
-          if (running && plugin.isEnabled()) {
-            captureSignatures();
-            if (!SchedulerUtils.runGlobal(plugin, this::reloadAndNotifyOps)) {
-              plugin.getLogger().warning("Failed to schedule config reload");
-            }
-          }
-        }
-      }
-    } catch (ClosedWatchServiceException exception) {
-      if (running) {
-        plugin.getLogger().log(Level.SEVERE, "HiddenOre config watcher closed unexpectedly", exception);
+        Thread.sleep(WATCHER_RETRY_MILLIS);
       }
     } catch (InterruptedException exception) {
       Thread.currentThread().interrupt();
-      if (running) {
-        plugin.getLogger().log(Level.WARNING, "HiddenOre config watcher was interrupted unexpectedly", exception);
-      }
-    } catch (IOException exception) {
-      if (running) {
-        plugin.getLogger().log(Level.SEVERE, "HiddenOre config watcher stopped unexpectedly", exception);
-      }
     } finally {
       watchService = null;
       thread = null;
@@ -137,63 +166,288 @@ public final class ConfigWatcher implements Runnable {
     }
   }
 
-  private void reloadAndNotifyOps() {
-    if (!running || plugin.isDraining() || !plugin.isEnabled()) {
-      return;
-    }
-
-    Path configFile = dir.resolve("config.yml");
-    Path languageFile = dir.resolve("language.yml");
-    if (!Files.isRegularFile(configFile) || !Files.isRegularFile(languageFile)) {
-      plugin.getLogger().warning("Config reload skipped because config.yml or language.yml is missing");
-      return;
-    }
-
-    try {
-      plugin.reloadAll();
-    } catch (RuntimeException exception) {
-      plugin.getLogger().log(Level.SEVERE, "Config reload failed; the previous runtime configuration remains active", exception);
-      return;
-    }
-
-    HiddenOre.RuntimeState runtime = plugin.getRuntimeState();
-    HiddenOre.ReloadNotification notification = runtime.reloadNotification();
-    Component message = runtime.messages().component(Messages.CONFIG_RELOADED_MESSAGE);
-    for (Player player : Bukkit.getOnlinePlayers()) {
-      if (!SchedulerUtils.runEntity(plugin, player, () -> notifyOperator(player, message, notification.sound(),
-          notification.volume(), notification.pitch()))) {
-        plugin.getLogger().warning("Failed to schedule a config reload notification for an online player");
+  private void watchDirectory() throws IOException, InterruptedException {
+    try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+      watchService = watcher;
+      dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY,
+          StandardWatchEventKinds.ENTRY_DELETE);
+      while (running && plugin.isEnabled()) {
+        WatchKey key = watcher.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+        boolean shouldReload = key != null && containsWatchedChange(key);
+        if (key != null && !key.reset()) {
+          throw new IOException("HiddenOre config watcher key became invalid for " + dir);
+        }
+        if (!shouldReload) {
+          shouldReload = signaturesChanged();
+        }
+        if (shouldReload) {
+          long generation = currentReloadGeneration();
+          Map<String, String> stableSignatures = awaitQuietPeriod(watcher);
+          if (running && plugin.isEnabled()) {
+            ReloadSnapshot snapshot = captureReloadSnapshot(stableSignatures);
+            if (snapshot != null) {
+              acceptReloadSnapshot(stableSignatures, snapshot, generation);
+            }
+          }
+        }
+        schedulePendingReload();
       }
     }
   }
 
-  private void captureSignatures() {
-    for (String name : watchedFiles) {
-      lastSignatures.put(name, signature(dir.resolve(name)));
+  private void reconcileWithoutEvents() throws InterruptedException, IOException {
+    if (!signaturesChanged()) {
+      schedulePendingReload();
+      return;
     }
+    long generation = currentReloadGeneration();
+    Map<String, String> stableSignatures = awaitQuietPeriod(null);
+    ReloadSnapshot snapshot = captureReloadSnapshot(stableSignatures);
+    if (snapshot == null) {
+      return;
+    }
+    acceptReloadSnapshot(stableSignatures, snapshot, generation);
+  }
+
+  private void reloadAndNotifyOps() {
+    ReloadSnapshot snapshot;
+    long generation;
+    synchronized (reloadQueueLock) {
+      snapshot = scheduledReload;
+      generation = scheduledReloadGeneration;
+    }
+    boolean applied = false;
+    try {
+      if (snapshot == null || generation != reloadGeneration || !running || plugin.isDraining()
+          || !plugin.isEnabled()) {
+        return;
+      }
+
+      synchronized (plugin) {
+        if (generation != reloadGeneration || !running || plugin.isDraining() || !plugin.isEnabled()) {
+          return;
+        }
+        try {
+          plugin.reloadAll(snapshot.configYaml(), snapshot.languageYaml());
+        } catch (RuntimeException exception) {
+          plugin.getLogger().log(Level.SEVERE, "Config reload failed; the previous runtime configuration remains active", exception);
+          return;
+        }
+      }
+      applied = true;
+
+      HiddenOre.RuntimeState runtime = plugin.getRuntimeState();
+      HiddenOre.ReloadNotification notification = runtime.reloadNotification();
+      Component message = runtime.messages().component(Messages.CONFIG_RELOADED_MESSAGE);
+      for (Player player : Bukkit.getOnlinePlayers()) {
+        if (!SchedulerUtils.runEntity(plugin, player, () -> notifyOperator(player, message, notification.sound(),
+            notification.volume(), notification.pitch()))) {
+          plugin.getLogger().warning("Failed to schedule a config reload notification for an online player");
+        }
+      }
+    } finally {
+      synchronized (reloadQueueLock) {
+        if (!applied && generation == reloadGeneration && pendingReload == null && snapshot != null) {
+          pendingReload = snapshot;
+          reloadPending = true;
+        }
+        scheduledReload = null;
+        reloadScheduled = false;
+        reloadCompleted = true;
+        lastReloadCompletedAtNanos = System.nanoTime();
+      }
+      schedulePendingReload();
+    }
+  }
+
+  private void acceptReloadSnapshot(Map<String, String> signatures, ReloadSnapshot snapshot, long generation) {
+    synchronized (reloadQueueLock) {
+      if (generation != reloadGeneration) {
+        return;
+      }
+      lastSignatures.clear();
+      lastSignatures.putAll(signatures);
+      pendingReload = snapshot;
+      reloadPending = true;
+    }
+    schedulePendingReload();
+  }
+
+  private void schedulePendingReload() {
+    long now = System.nanoTime();
+    synchronized (reloadQueueLock) {
+      if (!running || !reloadPending || pendingReload == null || reloadScheduled) {
+        return;
+      }
+      if (reloadCompleted
+          && now - lastReloadCompletedAtNanos < TimeUnit.MILLISECONDS.toNanos(RELOAD_COOLDOWN_MILLIS)) {
+        return;
+      }
+      reloadPending = false;
+      reloadScheduled = true;
+      scheduledReload = pendingReload;
+      scheduledReloadGeneration = reloadGeneration;
+      pendingReload = null;
+    }
+
+    if (!SchedulerUtils.runGlobal(plugin, this::reloadAndNotifyOps)) {
+      synchronized (reloadQueueLock) {
+        if (pendingReload == null) {
+          pendingReload = scheduledReload;
+        }
+        scheduledReload = null;
+        reloadPending = pendingReload != null;
+        reloadScheduled = false;
+      }
+      plugin.getLogger().warning("Failed to schedule config reload; the latest edit remains queued");
+    }
+  }
+
+  private boolean requiredFilesPresent() {
+    boolean present = true;
+    for (String name : watchedFiles) {
+      Path file = dir.resolve(name);
+      if (!Files.isRegularFile(file)) {
+        present = false;
+        continue;
+      }
+      try {
+        if (Files.size(file) <= MAX_CONFIG_BYTES) {
+          oversizedWarnings.remove(name);
+          continue;
+        }
+        present = false;
+        if (oversizedWarnings.add(name)) {
+          plugin.getLogger().warning("HiddenOre config hotload is waiting because " + name + " exceeds "
+              + MAX_CONFIG_BYTES + " bytes");
+        }
+      } catch (IOException exception) {
+        present = false;
+        reportWatcherFailure("Unable to inspect HiddenOre hotload target " + file, exception);
+      }
+    }
+    return present;
   }
 
   private boolean signaturesChanged() {
-    boolean changed = false;
-    for (String name : watchedFiles) {
-      String current = signature(dir.resolve(name));
-      String previous = lastSignatures.get(name);
-      if (previous != null && !previous.equals(current)) {
-        changed = true;
-      }
+    Map<String, String> previous;
+    synchronized (reloadQueueLock) {
+      previous = Map.copyOf(lastSignatures);
     }
-    return changed;
+    return !previous.equals(currentSignatures());
   }
 
-  private String signature(Path file) {
+  private Map<String, String> currentSignatures() {
+    return diskSignatures(dir);
+  }
+
+  private ReloadSnapshot captureReloadSnapshot(Map<String, String> expectedSignatures) throws IOException {
+    if (!requiredFilesPresent()) {
+      return null;
+    }
+    String configYaml = readBoundedUtf8(dir.resolve("config.yml"));
+    String languageYaml = readBoundedUtf8(dir.resolve("language.yml"));
+    if (!expectedSignatures.equals(currentSignatures())) {
+      return null;
+    }
+    return new ReloadSnapshot(configYaml, languageYaml, Map.copyOf(expectedSignatures));
+  }
+
+  public void resetAfterManualReload(String configYaml, String languageYaml) {
+    Map<String, String> signatures = appliedSignatures(configYaml, languageYaml);
+    synchronized (reloadQueueLock) {
+      reloadGeneration++;
+      reloadPending = false;
+      reloadScheduled = false;
+      pendingReload = null;
+      scheduledReload = null;
+      reloadCompleted = true;
+      lastReloadCompletedAtNanos = System.nanoTime();
+      lastSignatures.clear();
+      lastSignatures.putAll(signatures);
+    }
+  }
+
+  private String readBoundedUtf8(Path file) throws IOException {
+    try (InputStream input = Files.newInputStream(file)) {
+      byte[] content = input.readNBytes((int) MAX_CONFIG_BYTES + 1);
+      if (content.length > MAX_CONFIG_BYTES) {
+        throw new IOException(file.getFileName() + " exceeds " + MAX_CONFIG_BYTES + " bytes");
+      }
+      return new String(content, StandardCharsets.UTF_8);
+    }
+  }
+
+  private static String signature(Path file) {
     if (file == null || !Files.isRegularFile(file)) {
       return "missing";
     }
     try {
-      return Files.getLastModifiedTime(file).toMillis() + ":" + Files.size(file);
+      BasicFileAttributes before = Files.readAttributes(file, BasicFileAttributes.class);
+      if (before.size() > MAX_CONFIG_BYTES) {
+        return "oversized:" + attributesSignature(before);
+      }
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] buffer = new byte[8192];
+      long size = 0L;
+      try (InputStream input = Files.newInputStream(file)) {
+        int read;
+        while ((read = input.read(buffer)) >= 0) {
+          size += read;
+          if (size > MAX_CONFIG_BYTES) {
+            return "oversized:" + attributesSignature(before);
+          }
+          digest.update(buffer, 0, read);
+        }
+      }
+      BasicFileAttributes after = Files.readAttributes(file, BasicFileAttributes.class);
+      if (!attributesSignature(before).equals(attributesSignature(after)) || size != after.size()) {
+        return "changing:" + attributesSignature(after);
+      }
+      return contentSignature(size, HexFormat.of().formatHex(digest.digest()));
     } catch (IOException exception) {
       return "unreadable";
+    } catch (NoSuchAlgorithmException exception) {
+      throw new IllegalStateException("SHA-256 is unavailable", exception);
     }
+  }
+
+  private static String attributesSignature(BasicFileAttributes attributes) {
+    return attributes.lastModifiedTime().toMillis() + ":" + attributes.size() + ":" + attributes.fileKey();
+  }
+
+  private long currentReloadGeneration() {
+    synchronized (reloadQueueLock) {
+      return reloadGeneration;
+    }
+  }
+
+  static Map<String, String> appliedSignatures(String configYaml, String languageYaml) {
+    Map<String, String> signatures = new HashMap<>();
+    signatures.put("config.yml", contentSignature(configYaml));
+    signatures.put("language.yml", contentSignature(languageYaml));
+    return Map.copyOf(signatures);
+  }
+
+  static Map<String, String> diskSignatures(Path directory) {
+    Map<String, String> signatures = new HashMap<>();
+    signatures.put("config.yml", signature(directory.resolve("config.yml")));
+    signatures.put("language.yml", signature(directory.resolve("language.yml")));
+    return Map.copyOf(signatures);
+  }
+
+  private static String contentSignature(String content) {
+    byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      return contentSignature(bytes.length, HexFormat.of().formatHex(digest.digest(bytes)));
+    } catch (NoSuchAlgorithmException exception) {
+      throw new IllegalStateException("SHA-256 is unavailable", exception);
+    }
+  }
+
+  private static String contentSignature(long size, String digest) {
+    return "content:" + size + ":" + digest;
   }
 
   private boolean containsWatchedChange(WatchKey key) {
@@ -213,24 +467,42 @@ public final class ConfigWatcher implements Runnable {
     return watched;
   }
 
-  private void awaitQuietPeriod(WatchService watcher) throws InterruptedException {
+  private Map<String, String> awaitQuietPeriod(WatchService watcher) throws InterruptedException, IOException {
+    Map<String, String> candidate = currentSignatures();
     long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(RELOAD_DEBOUNCE_MILLIS);
     while (running) {
       long remaining = deadline - System.nanoTime();
       if (remaining <= 0L) {
-        return;
+        return candidate;
       }
-      WatchKey key = watcher.poll(remaining, TimeUnit.NANOSECONDS);
-      if (key == null) {
-        return;
+      long sampleWindow = Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(50L));
+      WatchKey key = watcher == null ? null : watcher.poll(sampleWindow, TimeUnit.NANOSECONDS);
+      if (watcher == null) {
+        TimeUnit.NANOSECONDS.sleep(sampleWindow);
       }
-      if (containsWatchedChange(key)) {
+      if (key != null && containsWatchedChange(key)) {
         deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(RELOAD_DEBOUNCE_MILLIS);
       }
-      if (!key.reset()) {
-        return;
+      if (key != null && !key.reset()) {
+        throw new IOException("HiddenOre config watcher key became invalid for " + dir);
+      }
+      Map<String, String> sampled = currentSignatures();
+      if (!sampled.equals(candidate)) {
+        candidate = sampled;
+        deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(RELOAD_DEBOUNCE_MILLIS);
       }
     }
+    return candidate;
+  }
+
+  private void reportWatcherFailure(String message, Throwable failure) {
+    long now = System.nanoTime();
+    if (lastWatcherFailureLogAtNanos != 0L
+        && now - lastWatcherFailureLogAtNanos < TimeUnit.MILLISECONDS.toNanos(WATCHER_FAILURE_LOG_INTERVAL_MILLIS)) {
+      return;
+    }
+    lastWatcherFailureLogAtNanos = now;
+    plugin.getLogger().log(Level.WARNING, message, failure);
   }
 
   private void notifyOperator(Player player, Component message, Sound sound, float volume, float pitch) {
@@ -239,5 +511,8 @@ public final class ConfigWatcher implements Runnable {
     }
     HiddenOre.sendMessage(player, message);
     player.playSound(player.getLocation(), sound, volume, pitch);
+  }
+
+  private record ReloadSnapshot(String configYaml, String languageYaml, Map<String, String> signatures) {
   }
 }

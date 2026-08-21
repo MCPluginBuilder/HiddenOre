@@ -31,6 +31,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +54,7 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   // HiddenOreMetrics owns all bstats types; never reference them from this class (slimjar link trap)
   private HiddenOreMetrics metrics;
   private volatile RuntimeState runtimeState;
+  private volatile AppliedConfigSnapshot appliedConfigSnapshot;
   private volatile boolean draining;
   private boolean serviceRegistered;
 
@@ -92,7 +95,11 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       serviceRegistered = true;
       getLogger().info("HiddenOre service registered for third-party integrations");
       configWatcher = new ConfigWatcher(this);
-      configWatcher.start();
+      AppliedConfigSnapshot startupSnapshot = appliedConfigSnapshot;
+      if (startupSnapshot == null) {
+        throw new IllegalStateException("HiddenOre configuration snapshot is unavailable after startup reload");
+      }
+      configWatcher.startWithAppliedSnapshot(startupSnapshot.configYaml(), startupSnapshot.languageYaml());
       SplashScreen.print(this, true, "");
     } catch (Exception exception) {
       getLogger().log(Level.SEVERE, "Error enabling plugin", exception);
@@ -207,8 +214,36 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
 
     File configFile = new File(getDataFolder(), "config.yml");
     File langFile = new File(getDataFolder(), "language.yml");
-    YamlConfiguration config = loadYaml(configFile, "config.yml");
-    YamlConfiguration langConfig = loadYaml(langFile, "language.yml");
+    AppliedConfigSnapshot snapshot = new AppliedConfigSnapshot(
+        readYaml(configFile, "config.yml"),
+        readYaml(langFile, "language.yml")
+    );
+    applyReloadSnapshot(configFile, langFile, snapshot);
+    ConfigWatcher watcher = configWatcher;
+    if (watcher != null) {
+      watcher.resetAfterManualReload(snapshot.configYaml(), snapshot.languageYaml());
+    }
+  }
+
+  public synchronized void reloadAll(String configYaml, String languageYaml) {
+    if (draining) {
+      throw new IllegalStateException("HiddenOre is shutting down");
+    }
+
+    File configFile = new File(getDataFolder(), "config.yml");
+    File langFile = new File(getDataFolder(), "language.yml");
+    applyReloadSnapshot(configFile, langFile, new AppliedConfigSnapshot(configYaml, languageYaml));
+  }
+
+  private void applyReloadSnapshot(File configFile, File langFile, AppliedConfigSnapshot snapshot) {
+    YamlConfiguration config = loadYaml(snapshot.configYaml(), configFile, "config.yml");
+    YamlConfiguration langConfig = loadYaml(snapshot.languageYaml(), langFile, "language.yml");
+    applyReload(configFile, langFile, config, langConfig);
+    appliedConfigSnapshot = snapshot;
+  }
+
+  private void applyReload(File configFile, File langFile, YamlConfiguration config,
+                           YamlConfiguration langConfig) {
 
     MiningRuleManager nextRuleManager;
     boolean autoPickup;
@@ -306,12 +341,21 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
     return draining;
   }
 
-  private YamlConfiguration loadYaml(File file, String name) {
+  private String readYaml(File file, String name) {
+    try {
+      return Files.readString(file.toPath(), StandardCharsets.UTF_8);
+    } catch (IOException exception) {
+      throw new IllegalArgumentException("Failed to load HiddenOre configuration file '" + file.getAbsolutePath()
+          + "' (" + name + "): " + exception.getMessage(), exception);
+    }
+  }
+
+  private YamlConfiguration loadYaml(String content, File file, String name) {
     YamlConfiguration configuration = new YamlConfiguration();
     try {
-      configuration.load(file);
+      configuration.loadFromString(content);
       return configuration;
-    } catch (IOException | InvalidConfigurationException exception) {
+    } catch (InvalidConfigurationException exception) {
       throw new IllegalArgumentException("Failed to load HiddenOre configuration file '" + file.getAbsolutePath()
           + "' (" + name + "): " + exception.getMessage(), exception);
     }
@@ -377,5 +421,8 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   }
 
   public record ReloadNotification(Sound sound, float volume, float pitch) {
+  }
+
+  private record AppliedConfigSnapshot(String configYaml, String languageYaml) {
   }
 }
