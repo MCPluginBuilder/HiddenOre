@@ -23,6 +23,7 @@ def shadowJarTask = tasks.named('shadowJar', com.github.jengelman.gradle.plugins
 tasks.named('slimJar').get()
 
 registerCustomOutputTaskUnix('PsychoLT', '/Users/brianfopiano/Developer/RemoteGit/[Minecraft Server]/consumers/plugin-consumers/dropins/plugins')
+registerCustomOutputTask('SwiftSwamp', 'C://VolmitSoftware/BUILDS')
 
 tasks.named('jar', org.gradle.api.tasks.bundling.Jar).configure {
     archiveClassifier.set('')
@@ -68,6 +69,7 @@ slimJar {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
     maven {
         url = uri('https://repo.papermc.io/repository/maven-public/')
