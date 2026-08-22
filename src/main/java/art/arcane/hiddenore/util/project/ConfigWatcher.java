@@ -28,11 +28,13 @@ import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 
 public final class ConfigWatcher implements Runnable {
   private static final long RELOAD_DEBOUNCE_MILLIS = 250L;
   private static final long RELOAD_COOLDOWN_MILLIS = 3_000L;
+  private static final long SIGNATURE_RECONCILIATION_MILLIS = 2_500L;
   private static final long POLL_TIMEOUT_MILLIS = 1_000L;
   private static final long WATCHER_RETRY_MILLIS = 1_000L;
   private static final long WATCHER_FAILURE_LOG_INTERVAL_MILLIS = 30_000L;
@@ -44,6 +46,9 @@ public final class ConfigWatcher implements Runnable {
   private final Map<String, String> lastSignatures = new HashMap<>();
   private final Set<String> oversizedWarnings = new HashSet<>();
   private final Object reloadQueueLock = new Object();
+  private final SignatureReconciliation signatureReconciliation = new SignatureReconciliation(
+      TimeUnit.MILLISECONDS.toNanos(SIGNATURE_RECONCILIATION_MILLIS)
+  );
   private volatile boolean running;
   private volatile Thread thread;
   private volatile WatchService watchService;
@@ -70,6 +75,7 @@ public final class ConfigWatcher implements Runnable {
 
     Map<String, String> appliedSignatures = appliedSignatures(configYaml, languageYaml);
     running = true;
+    signatureReconciliation.reset(System.nanoTime());
     synchronized (reloadQueueLock) {
       reloadPending = false;
       reloadScheduled = false;
@@ -155,7 +161,11 @@ public final class ConfigWatcher implements Runnable {
         } catch (IOException exception) {
           reportWatcherFailure("HiddenOre config reconciliation failed; retrying", exception);
         }
-        Thread.sleep(WATCHER_RETRY_MILLIS);
+        long retryNanos = signatureReconciliation.pollTimeoutNanos(
+            System.nanoTime(),
+            TimeUnit.MILLISECONDS.toNanos(WATCHER_RETRY_MILLIS)
+        );
+        TimeUnit.NANOSECONDS.sleep(retryNanos);
       }
     } catch (InterruptedException exception) {
       Thread.currentThread().interrupt();
@@ -172,13 +182,20 @@ public final class ConfigWatcher implements Runnable {
       dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY,
           StandardWatchEventKinds.ENTRY_DELETE);
       while (running && plugin.isEnabled()) {
-        WatchKey key = watcher.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+        long pollNanos = signatureReconciliation.pollTimeoutNanos(
+            System.nanoTime(),
+            TimeUnit.MILLISECONDS.toNanos(POLL_TIMEOUT_MILLIS)
+        );
+        WatchKey key = watcher.poll(pollNanos, TimeUnit.NANOSECONDS);
         boolean shouldReload = key != null && containsWatchedChange(key);
         if (key != null && !key.reset()) {
           throw new IOException("HiddenOre config watcher key became invalid for " + dir);
         }
-        if (!shouldReload) {
-          shouldReload = signaturesChanged();
+        long now = System.nanoTime();
+        if (shouldReload) {
+          signatureReconciliation.reset(now);
+        } else {
+          shouldReload = signatureReconciliation.reconcileIfDue(now, this::signaturesChanged);
         }
         if (shouldReload) {
           long generation = currentReloadGeneration();
@@ -196,7 +213,7 @@ public final class ConfigWatcher implements Runnable {
   }
 
   private void reconcileWithoutEvents() throws InterruptedException, IOException {
-    if (!signaturesChanged()) {
+    if (!signatureReconciliation.reconcileIfDue(System.nanoTime(), this::signaturesChanged)) {
       schedulePendingReload();
       return;
     }
@@ -355,6 +372,7 @@ public final class ConfigWatcher implements Runnable {
 
   public void resetAfterManualReload(String configYaml, String languageYaml) {
     Map<String, String> signatures = appliedSignatures(configYaml, languageYaml);
+    signatureReconciliation.reset(System.nanoTime());
     synchronized (reloadQueueLock) {
       reloadGeneration++;
       reloadPending = false;
@@ -514,5 +532,54 @@ public final class ConfigWatcher implements Runnable {
   }
 
   private record ReloadSnapshot(String configYaml, String languageYaml, Map<String, String> signatures) {
+  }
+
+  static final class SignatureReconciliation {
+    private final long intervalNanos;
+    private long nextReconciliationNanos = Long.MIN_VALUE;
+
+    SignatureReconciliation(long intervalNanos) {
+      this.intervalNanos = Math.max(1L, intervalNanos);
+    }
+
+    synchronized void reset(long nowNanos) {
+      nextReconciliationNanos = saturatingAdd(nowNanos, intervalNanos);
+    }
+
+    boolean reconcileIfDue(long nowNanos, BooleanSupplier reconciliation) {
+      synchronized (this) {
+        if (nextReconciliationNanos == Long.MIN_VALUE) {
+          nextReconciliationNanos = saturatingAdd(nowNanos, intervalNanos);
+          return false;
+        }
+        if (nowNanos < nextReconciliationNanos) {
+          return false;
+        }
+        nextReconciliationNanos = saturatingAdd(nowNanos, intervalNanos);
+      }
+      return reconciliation.getAsBoolean();
+    }
+
+    synchronized long pollTimeoutNanos(long nowNanos, long maximumNanos) {
+      long safeMaximum = Math.max(1L, maximumNanos);
+      if (nextReconciliationNanos == Long.MIN_VALUE) {
+        return safeMaximum;
+      }
+      if (nowNanos >= nextReconciliationNanos) {
+        return 1L;
+      }
+      long remaining = nextReconciliationNanos - nowNanos;
+      if (remaining <= 0L) {
+        return safeMaximum;
+      }
+      return Math.min(safeMaximum, remaining);
+    }
+
+    private static long saturatingAdd(long left, long right) {
+      if (right > 0L && left > Long.MAX_VALUE - right) {
+        return Long.MAX_VALUE;
+      }
+      return left + right;
+    }
   }
 }
