@@ -8,7 +8,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -18,7 +17,6 @@ public class OperatorLoggingPolicyTest {
   @Test
   public void productionSourcesDoNotBypassTheHiddenOreLogger() throws IOException {
     List<Path> sources = javaSources();
-    int rawConsoleMessages = 0;
     for (Path source : sources) {
       String text = Files.readString(source);
       assertFalse(source.toString(), text.contains("System.out"));
@@ -28,15 +26,18 @@ public class OperatorLoggingPolicyTest {
       assertFalse(source.toString(), text.contains("getServer().getLogger("));
       assertFalse(source.toString(), text.contains("Logger.getLogger("));
       assertFalse(source.toString(), hasDirectPluginLogCall(text));
-      int index = text.indexOf("Bukkit.getConsoleSender().sendMessage(");
-      while (index >= 0) {
-        rawConsoleMessages++;
-        assertTrue(source.toString(),
-            source.endsWith(Path.of("art/arcane/hiddenore/util/common/SplashScreen.java")));
-        index = text.indexOf("Bukkit.getConsoleSender().sendMessage(", index + 1);
-      }
+      assertFalse(source.toString(), text.contains("Bukkit.getConsoleSender().sendMessage("));
+      assertFalse(source.toString(), text.contains("sender.sendMessage("));
+      assertFalse(source.toString(), text.contains("player.sendMessage("));
+      assertFalse(source.toString(), text.contains("LegacyComponentSerializer"));
+      assertFalse(source.toString(), text.contains("BukkitAudiences"));
     }
-    assertEquals(1, rawConsoleMessages);
+
+    String plugin = Files.readString(MAIN_SOURCE.resolve("art/arcane/hiddenore/HiddenOre.java"));
+    assertTrue(plugin.contains("ComponentMessenger.send(sender, ComponentText.component(component))"));
+    String splash = Files.readString(
+        MAIN_SOURCE.resolve("art/arcane/hiddenore/util/common/SplashScreen.java"));
+    assertTrue(splash.contains("ComponentLog.logLegacy("));
   }
 
   @Test

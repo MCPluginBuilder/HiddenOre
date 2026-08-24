@@ -10,8 +10,10 @@ import art.arcane.volmlib.util.localization.MessageArgs;
 import art.arcane.volmlib.util.localization.LocalizationReloadResult;
 import art.arcane.volmlib.util.localization.MessageKey;
 import art.arcane.volmlib.util.localization.VolmitLocales;
+import art.arcane.volmlib.util.plugin.ComponentText;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.Test;
@@ -188,6 +190,24 @@ public class MessagesTest {
   }
 
   @Test
+  public void sharedComponentBridgePreservesColorClickAndHoverEvents() {
+    Messages messages = new Messages();
+    YamlConfiguration language = new YamlConfiguration();
+    language.set("reloaded",
+        "<click:run_command:'/hiddenore reload'><hover:show_text:'Reload HiddenOre'>"
+            + "<#12ab34>Reload now</#12ab34></hover></click>");
+    messages.reload(language, "language.yml", "en_US");
+
+    ComponentText bridged = ComponentText.component(messages.component(Messages.RELOADED));
+    Component restored = MiniMessage.miniMessage().deserialize(bridged.miniMessage());
+
+    assertEquals("[HiddenOre] Reload now", bridged.plain());
+    assertTrue(hasClickEvent(restored));
+    assertTrue(hasHoverEvent(restored));
+    assertTrue(hasColor(restored, TextColor.color(0x12ab34)));
+  }
+
+  @Test
   public void overlaysCannotPlaceUntrustedArgumentsInsideMiniMessageTags() {
     Messages messages = new Messages();
     YamlConfiguration language = new YamlConfiguration();
@@ -293,6 +313,30 @@ public class MessagesTest {
     }
     for (Component child : component.children()) {
       if (hasClickEvent(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasHoverEvent(Component component) {
+    if (component.hoverEvent() != null) {
+      return true;
+    }
+    for (Component child : component.children()) {
+      if (hasHoverEvent(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasColor(Component component, TextColor color) {
+    if (color.equals(component.color())) {
+      return true;
+    }
+    for (Component child : component.children()) {
+      if (hasColor(child, color)) {
         return true;
       }
     }

@@ -14,6 +14,7 @@ import art.arcane.volmlib.util.director.runtime.DirectorSender;
 import art.arcane.volmlib.util.director.theme.DirectorProduct;
 import art.arcane.volmlib.util.director.theme.DirectorTheme;
 import art.arcane.volmlib.util.director.theme.DirectorThemes;
+import art.arcane.volmlib.util.plugin.ComponentMessenger;
 import org.bukkit.SoundCategory;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -204,7 +205,7 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
     @Override
     public void sendMessage(String message) {
       if (message != null && !message.trim().isEmpty()) {
-        sender.sendMessage(message);
+        ComponentMessenger.sendLiteral(sender, message);
       }
     }
   }

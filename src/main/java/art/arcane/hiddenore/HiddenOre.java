@@ -11,7 +11,6 @@ import art.arcane.hiddenore.service.HiddenOreCommandService;
 import art.arcane.hiddenore.service.HiddenOreIntegrationService;
 import art.arcane.hiddenore.service.HiddenOrePlaceholderService;
 import art.arcane.hiddenore.service.HiddenOreTelemetry;
-import art.arcane.hiddenore.util.common.ConsoleAudienceFallback;
 import art.arcane.hiddenore.util.common.Messages;
 import art.arcane.hiddenore.util.common.SplashScreen;
 import art.arcane.hiddenore.util.project.ConfigWatcher;
@@ -19,9 +18,9 @@ import art.arcane.hiddenore.util.project.SoundResolver;
 import art.arcane.hiddenore.vein.SeededVeinGenerator;
 import art.arcane.volmlib.integration.ReloadAware;
 import art.arcane.volmlib.util.bukkit.ChunkPositionSet;
+import art.arcane.volmlib.util.plugin.ComponentMessenger;
+import art.arcane.volmlib.util.plugin.ComponentText;
 import io.github.slimjar.app.builder.SpigotApplicationBuilder;
-import net.kyori.adventure.platform.bukkit.BukkitAudiences;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Sound;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -46,7 +45,6 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   // bstats.org plugin id
   private static final int BSTATS_PLUGIN_ID = 27610;
   private static final long LOG_THROTTLE_NANOS = TimeUnit.MINUTES.toNanos(1L);
-  private static volatile BukkitAudiences audiences;
   private final Set<UUID> debugPlayers = ConcurrentHashMap.newKeySet();
   private final ConcurrentMap<String, LogThrottle> logThrottles = new ConcurrentHashMap<>();
   private GenerationRules generationRules;
@@ -76,7 +74,6 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
     draining = false;
 
     try {
-      audiences = BukkitAudiences.create(this);
       File configFile = new File(getDataFolder(), "hiddenore.yml");
       if (!configFile.exists()) {
         saveResource("hiddenore.yml", false);
@@ -211,28 +208,13 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       generationRules = null;
     }
     debugPlayers.clear();
-    if (audiences != null) {
-      try {
-        audiences.close();
-      } catch (Throwable ex) {
-        logException(Level.WARNING, ex, "Error closing Adventure audiences.");
-      }
-      audiences = null;
-    }
   }
 
-  public static BukkitAudiences audiences() {
-    return audiences;
-  }
-
-  public static void sendMessage(CommandSender sender, Component component) {
+  public static void sendMessage(CommandSender sender, Object component) {
     if (sender == null || component == null) {
       return;
     }
-    // Routing (incl. the instanceof Audience check) lives in ConsoleAudienceFallback:
-    // an instanceof on a slimjar-provided type in this class fails the plugin load on
-    // Spigot before ApplicationBuilder.build().
-    ConsoleAudienceFallback.route(sender, component, audiences);
+    ComponentMessenger.send(sender, ComponentText.component(component));
   }
 
   public MiningRuleManager getRuleManager() {
