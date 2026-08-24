@@ -41,7 +41,7 @@ public final class HiddenOreIntegrationService implements IntegrationServiceCont
 
   public void register() {
     Bukkit.getServicesManager().register(IntegrationServiceContract.class, this, plugin, ServicePriority.Normal);
-    plugin.getLogger().info("Integration provider registered for HiddenOre");
+    plugin.debug("Integration provider registered for HiddenOre.");
   }
 
   public void unregister() {

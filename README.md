@@ -4,7 +4,7 @@ HiddenOre is a mining economy and anti-xray plugin for Minecraft servers. It rep
 
 ## Language and localization
 
-Canonical English is defined in the typed Java catalog at `src/main/java/art/arcane/hiddenore/util/common/Messages.java`; HiddenOre does not ship a separate English translation bundle. Complete bundles are included for German, Spanish, Finnish, French, Hebrew, Italian, Japanese, Korean, Lithuanian, Dutch, Polish, Portuguese, Russian, Turkish, Vietnamese, Simplified Chinese, and Traditional Chinese. Set `locale` in `language.yml` to select one. Message entries in that file are optional sparse server overrides; omitted entries resolve from the selected bundle and then code-owned English. Sound settings remain in the same file.
+Canonical English is defined in the typed Java catalog at `src/main/java/art/arcane/hiddenore/util/common/Messages.java`; HiddenOre does not ship a separate English translation bundle. Complete bundles are included for German, Spanish, Finnish, French, Hebrew, Italian, Japanese, Korean, Lithuanian, Dutch, Polish, Portuguese, Russian, Turkish, Vietnamese, Simplified Chinese, and Traditional Chinese. Set `language` at the start of `hiddenore.yml` to select one. Message entries in `language.yml` are optional sparse server overrides; omitted entries resolve from the selected bundle and then code-owned English. Sound settings remain in the same file.
 
 ## Requirements
 

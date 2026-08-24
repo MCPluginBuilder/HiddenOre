@@ -65,7 +65,7 @@ public final class ConfigWatcher implements Runnable {
   public ConfigWatcher(HiddenOre plugin) {
     this.plugin = plugin;
     this.dir = plugin.getDataFolder().toPath();
-    this.watchedFiles = Set.of("config.yml", "language.yml");
+    this.watchedFiles = Set.of("hiddenore.yml", "language.yml");
   }
 
   public synchronized void startWithAppliedSnapshot(String configYaml, String languageYaml) {
@@ -108,7 +108,7 @@ public final class ConfigWatcher implements Runnable {
       try {
         watcher.close();
       } catch (IOException exception) {
-        plugin.getLogger().log(Level.WARNING, "Failed to close the HiddenOre config watcher", exception);
+        plugin.logException(Level.WARNING, exception, "Failed to close the HiddenOre config watcher.");
       }
     }
 
@@ -120,10 +120,11 @@ public final class ConfigWatcher implements Runnable {
           watcherThread.join(1000L);
         } catch (InterruptedException exception) {
           Thread.currentThread().interrupt();
-          plugin.getLogger().log(Level.WARNING, "Interrupted while stopping the HiddenOre config watcher", exception);
+          plugin.logException(Level.WARNING, exception,
+              "Interrupted while stopping the HiddenOre config watcher.");
         }
         if (watcherThread.isAlive()) {
-          plugin.getLogger().warning("HiddenOre config watcher did not stop within one second");
+          plugin.warn("HiddenOre config watcher did not stop within one second.");
         }
       }
     }
@@ -146,7 +147,8 @@ public final class ConfigWatcher implements Runnable {
         } catch (InterruptedException exception) {
           Thread.currentThread().interrupt();
           if (running) {
-            plugin.getLogger().log(Level.WARNING, "HiddenOre config watcher was interrupted unexpectedly", exception);
+            plugin.logException(Level.WARNING, exception,
+                "HiddenOre config watcher was interrupted unexpectedly.");
           }
           break;
         } finally {
@@ -247,7 +249,8 @@ public final class ConfigWatcher implements Runnable {
         try {
           plugin.reloadAll(snapshot.configYaml(), snapshot.languageYaml());
         } catch (RuntimeException exception) {
-          plugin.getLogger().log(Level.SEVERE, "Config reload failed; the previous runtime configuration remains active", exception);
+          plugin.logException(Level.SEVERE, exception,
+              "Config reload failed; the previous runtime configuration remains active.");
           return;
         }
       }
@@ -259,7 +262,8 @@ public final class ConfigWatcher implements Runnable {
       for (Player player : Bukkit.getOnlinePlayers()) {
         if (!SchedulerUtils.runEntity(plugin, player, () -> notifyOperator(player, message, notification.sound(),
             notification.volume(), notification.pitch()))) {
-          plugin.getLogger().warning("Failed to schedule a config reload notification for an online player");
+          plugin.warnThrottled("config-reload-notification-scheduling",
+              "Failed to schedule a config reload notification for %s.", player.getName());
         }
       }
     } finally {
@@ -316,7 +320,8 @@ public final class ConfigWatcher implements Runnable {
         reloadPending = pendingReload != null;
         reloadScheduled = false;
       }
-      plugin.getLogger().warning("Failed to schedule config reload; the latest edit remains queued");
+      plugin.warnThrottled("config-reload-scheduling",
+          "Failed to schedule config reload; the latest edit remains queued.");
     }
   }
 
@@ -335,8 +340,8 @@ public final class ConfigWatcher implements Runnable {
         }
         present = false;
         if (oversizedWarnings.add(name)) {
-          plugin.getLogger().warning("HiddenOre config hotload is waiting because " + name + " exceeds "
-              + MAX_CONFIG_BYTES + " bytes");
+          plugin.warn("HiddenOre config hotload is waiting because %s exceeds %d bytes.",
+              name, MAX_CONFIG_BYTES);
         }
       } catch (IOException exception) {
         present = false;
@@ -362,7 +367,7 @@ public final class ConfigWatcher implements Runnable {
     if (!requiredFilesPresent()) {
       return null;
     }
-    String configYaml = readBoundedUtf8(dir.resolve("config.yml"));
+    String configYaml = readBoundedUtf8(dir.resolve("hiddenore.yml"));
     String languageYaml = readBoundedUtf8(dir.resolve("language.yml"));
     if (!expectedSignatures.equals(currentSignatures())) {
       return null;
@@ -442,14 +447,14 @@ public final class ConfigWatcher implements Runnable {
 
   static Map<String, String> appliedSignatures(String configYaml, String languageYaml) {
     Map<String, String> signatures = new HashMap<>();
-    signatures.put("config.yml", contentSignature(configYaml));
+    signatures.put("hiddenore.yml", contentSignature(configYaml));
     signatures.put("language.yml", contentSignature(languageYaml));
     return Map.copyOf(signatures);
   }
 
   static Map<String, String> diskSignatures(Path directory) {
     Map<String, String> signatures = new HashMap<>();
-    signatures.put("config.yml", signature(directory.resolve("config.yml")));
+    signatures.put("hiddenore.yml", signature(directory.resolve("hiddenore.yml")));
     signatures.put("language.yml", signature(directory.resolve("language.yml")));
     return Map.copyOf(signatures);
   }
@@ -520,7 +525,7 @@ public final class ConfigWatcher implements Runnable {
       return;
     }
     lastWatcherFailureLogAtNanos = now;
-    plugin.getLogger().log(Level.WARNING, message, failure);
+    plugin.logException(Level.WARNING, failure, "%s.", message);
   }
 
   private void notifyOperator(Player player, Component message, Sound sound, float volume, float pitch) {

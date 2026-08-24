@@ -9,7 +9,7 @@ public final class SplashScreen {
   private SplashScreen() {
   }
 
-  public static void print(HiddenOre plugin, boolean success, String errorMessage) {
+  public static void print(HiddenOre plugin, boolean success) {
     ChatColor dark = ChatColor.DARK_GRAY;
     ChatColor accent = ChatColor.GOLD;
     ChatColor meta = ChatColor.GRAY;
@@ -31,9 +31,6 @@ public final class SplashScreen {
             + accent + "╚═╝  ╚═╝╚═╝╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝" + meta + "   Java: " + accent + SplashScreenSupport.javaMajorVersion() + meta + " | Date: " + accent + startupDate + "\n";
 
     Bukkit.getConsoleSender().sendMessage(splash);
-    if (!success && errorMessage != null && !errorMessage.isBlank()) {
-      plugin.getLogger().warning("Startup error: " + errorMessage);
-    }
   }
 
   private static String rainbowStudioName() {

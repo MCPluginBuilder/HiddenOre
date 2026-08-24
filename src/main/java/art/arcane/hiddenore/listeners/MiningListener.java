@@ -439,21 +439,23 @@ public class MiningListener implements Listener {
         return;
       }
 
-      plugin.getLogger().warning("Failed to schedule " + target.name().toLowerCase(Locale.ROOT) + " command rewards for " + player.getName());
+      plugin.warnThrottled("command-reward-scheduling",
+          "Failed to schedule %s command rewards for %s.",
+          target.name().toLowerCase(Locale.ROOT), player.getName());
       groupStart = groupEnd;
     }
   }
 
   private void salvageConsoleGroups(Player player, List<CommandExec> commands, int startIndex) {
     ConsoleSalvage salvage = salvageConsoleCommands(commands, startIndex);
-    plugin.getLogger().info("skipped " + salvage.skippedPlayerGroups() + " player reward groups for " + player.getName() + ": offline");
     List<CommandExec> consoleCommands = salvage.commands();
     if (consoleCommands.isEmpty()) {
       return;
     }
     Runnable task = () -> dispatchCommands(Bukkit.getConsoleSender(), consoleCommands, 0, consoleCommands.size());
     if (!SchedulerUtils.runGlobal(plugin, task)) {
-      plugin.getLogger().warning("Failed to schedule salvaged console command rewards for " + player.getName());
+      plugin.warnThrottled("salvaged-command-reward-scheduling",
+          "Failed to schedule salvaged console command rewards for %s.", player.getName());
     }
   }
 

@@ -1,3 +1,6 @@
+language: en_US
+metrics: true
+
 auto_pickup_drops: false
 suppress_block_drop_on_custom_drop: true
 

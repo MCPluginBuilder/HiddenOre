@@ -116,7 +116,6 @@ public final class Messages {
   private static final MiniMessage MINI_MESSAGE = MiniMessage.builder().strict(true).build();
   private static final PlainTextComponentSerializer PLAIN_SERIALIZER = PlainTextComponentSerializer.plainText();
   private static final Set<String> NON_MESSAGE_PATHS = Set.of(
-      "locale",
       "config_reloaded_sound",
       "config_reloaded_sound_volume",
       "config_reloaded_sound_pitch"
@@ -151,10 +150,11 @@ public final class Messages {
     validateCatalogTemplates();
   }
 
-  public LocalizationReloadResult reload(YamlConfiguration language, String source) {
+  public LocalizationReloadResult reload(YamlConfiguration language, String source, String locale) {
     YamlConfiguration configuration = Objects.requireNonNull(language, "Language configuration cannot be null");
     String overlaySource = source == null || source.isBlank() ? "language.yml" : source;
-    LocalizationReloadResult result = manager.reload(() -> loadCandidate(configuration, overlaySource));
+    String requestedLocale = requireLocale(locale, "hiddenore.yml");
+    LocalizationReloadResult result = manager.reload(() -> loadCandidate(configuration, overlaySource, requestedLocale));
     if (result.applied()) {
       return result;
     }
@@ -218,10 +218,9 @@ public final class Messages {
     return builder.build();
   }
 
-  private LocalizationCandidate loadCandidate(YamlConfiguration language, String source) throws Exception {
-    String locale = readLocale(language, source);
+  private LocalizationCandidate loadCandidate(YamlConfiguration language, String source, String locale) throws Exception {
     List<LocaleOverlay> overlays = new ArrayList<>();
-    overlays.add(loadOverlay(language, source, locale));
+    overlays.add(loadOverlay(language, source, locale, false));
     LocaleOverlay bundled = loadBundledOverlay(locale);
     if (bundled != null) {
       overlays.add(bundled);
@@ -229,12 +228,12 @@ public final class Messages {
     return new LocalizationCandidate(CATALOG, overlays, PluralSelector.oneOther());
   }
 
-  private LocaleOverlay loadOverlay(YamlConfiguration language, String source, String locale) {
+  private LocaleOverlay loadOverlay(YamlConfiguration language, String source, String locale, boolean bundled) {
     LocaleOverlay.Builder overlay = LocaleOverlay.builder(source, locale);
     for (Map.Entry<String, Object> entry : language.getValues(true).entrySet()) {
       String path = entry.getKey();
       Object value = entry.getValue();
-      if (NON_MESSAGE_PATHS.contains(path) || value instanceof ConfigurationSection) {
+      if ((bundled && "locale".equals(path)) || NON_MESSAGE_PATHS.contains(path) || value instanceof ConfigurationSection) {
         continue;
       }
       addOverlayValue(overlay, source, path, value);
@@ -263,7 +262,7 @@ public final class Messages {
       if (!locale.equals(declaredLocale)) {
         throw invalid(resourcePath, "locale", "expected " + locale + " but found " + declaredLocale);
       }
-      return loadOverlay(language, resourcePath, locale);
+      return loadOverlay(language, resourcePath, locale, true);
     }
   }
 
@@ -274,6 +273,13 @@ public final class Messages {
     }
     if (!(configured instanceof String locale) || locale.isBlank()) {
       throw invalid(source, "locale", "expected a non-empty locale name");
+    }
+    return locale.trim();
+  }
+
+  private String requireLocale(String locale, String source) {
+    if (locale == null || locale.isBlank()) {
+      throw invalid(source, "language", "expected a non-empty locale name");
     }
     return locale.trim();
   }

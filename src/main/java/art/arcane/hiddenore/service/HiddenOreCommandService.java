@@ -45,7 +45,7 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
   public void register() {
     PluginCommand command = plugin.getCommand(ROOT_COMMAND);
     if (command == null) {
-      plugin.getLogger().warning("Failed to find command '" + ROOT_COMMAND + "'");
+      plugin.warn("Failed to find command '%s'.", ROOT_COMMAND);
       return;
     }
 
@@ -163,7 +163,7 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
     try {
       return getDirector().execute(new DirectorInvocation(new BukkitDirectorSender(sender), label, Arrays.asList(args)));
     } catch (Throwable e) {
-      plugin.getLogger().log(Level.SEVERE, "Director command execution failed", e);
+      plugin.logException(Level.SEVERE, e, "Director command execution failed.");
       return DirectorExecutionResult.notHandled();
     }
   }
@@ -172,7 +172,7 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
     try {
       return getDirector().tabComplete(new DirectorInvocation(new BukkitDirectorSender(sender), alias, Arrays.asList(args)));
     } catch (Throwable e) {
-      plugin.getLogger().log(Level.SEVERE, "Director tab completion failed", e);
+      plugin.logException(Level.SEVERE, e, "Director tab completion failed.");
       return List.of();
     }
   }

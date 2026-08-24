@@ -43,9 +43,7 @@ public class MessagesTest {
     Messages messages = new Messages();
     for (String locale : VolmitLocales.nonEnglish()) {
       YamlConfiguration language = new YamlConfiguration();
-      language.set("locale", locale);
-
-      LocalizationReloadResult result = messages.reload(language, "language.yml");
+      LocalizationReloadResult result = messages.reload(language, "language.yml", locale);
 
       assertTrue(locale, result.applied());
       for (MessageKey key : Messages.catalog().keys()) {
@@ -70,16 +68,36 @@ public class MessagesTest {
   }
 
   @Test
-  public void externalOverlayIsImmutableAfterAtomicReload() {
+  public void generatedFilesKeepLanguageAndMetricsInTheMainConfig() throws Exception {
+    YamlConfiguration config = YamlConfiguration.loadConfiguration(Path.of("src/main/resources/hiddenore.yml").toFile());
+    YamlConfiguration language = YamlConfiguration.loadConfiguration(Path.of("src/main/resources/language.yml").toFile());
+    List<String> keys = config.getKeys(false).stream().toList();
+
+    assertEquals("language", keys.get(0));
+    assertEquals("metrics", keys.get(1));
+    assertFalse(language.contains("locale"));
+  }
+
+  @Test
+  public void localeSelectorInLanguageFileIsRejected() {
     Messages messages = new Messages();
     YamlConfiguration language = new YamlConfiguration();
     language.set("locale", "de_DE");
+
+    assertThrows(IllegalArgumentException.class,
+        () -> messages.reload(language, "language.yml", "en_US"));
+  }
+
+  @Test
+  public void externalOverlayIsImmutableAfterAtomicReload() {
+    Messages messages = new Messages();
+    YamlConfiguration language = new YamlConfiguration();
     language.set("prefix", "<gold>[Erz]</gold> ");
     language.set("no_permission", "<red>Keine Berechtigung.</red>");
     language.set("director.help.navigation.page", "Seite");
     language.set("command.description.reload", "HiddenOre-Konfiguration neu laden");
 
-    LocalizationReloadResult result = messages.reload(language, "translations/de_DE.yml");
+    LocalizationReloadResult result = messages.reload(language, "translations/de_DE.yml", "de_DE");
     language.set("prefix", "Changed after reload");
     language.set("no_permission", "Changed after reload");
 
@@ -94,17 +112,15 @@ public class MessagesTest {
   public void invalidReloadRetainsTheLastGoodSnapshot() {
     Messages messages = new Messages();
     YamlConfiguration valid = new YamlConfiguration();
-    valid.set("locale", "fr_FR");
     valid.set("no_permission", "<red>Accès refusé.</red>");
-    messages.reload(valid, "translations/fr_FR.yml");
+    messages.reload(valid, "translations/fr_FR.yml", "fr_FR");
 
     YamlConfiguration placeholderDrift = new YamlConfiguration();
-    placeholderDrift.set("locale", "fr_FR");
     placeholderDrift.set("no_permission", "<red>Bonjour {player}</red>");
 
     IllegalArgumentException exception = assertThrows(
         IllegalArgumentException.class,
-        () -> messages.reload(placeholderDrift, "translations/fr_FR.yml")
+        () -> messages.reload(placeholderDrift, "translations/fr_FR.yml", "fr_FR")
     );
 
     assertTrue(exception.getMessage().contains("localization reload rejected"));
@@ -116,19 +132,19 @@ public class MessagesTest {
     Messages messages = new Messages();
     YamlConfiguration valid = new YamlConfiguration();
     valid.set("reloaded", "<gold>Dernière bonne version.</gold>");
-    messages.reload(valid, "language.yml");
+    messages.reload(valid, "language.yml", "en_US");
     YamlConfiguration malformed = new YamlConfiguration();
     malformed.set("reloaded", "<red>Missing close");
     IllegalArgumentException malformedException = assertThrows(
         IllegalArgumentException.class,
-        () -> messages.reload(malformed, "language.yml")
+        () -> messages.reload(malformed, "language.yml", "en_US")
     );
 
     YamlConfiguration wrongShape = new YamlConfiguration();
     wrongShape.set("reloaded", List.of("Not", "a", "string"));
     IllegalArgumentException shapeException = assertThrows(
         IllegalArgumentException.class,
-        () -> messages.reload(wrongShape, "language.yml")
+        () -> messages.reload(wrongShape, "language.yml", "en_US")
     );
 
     assertTrue(malformedException.getMessage().contains("invalid MiniMessage"));
@@ -142,13 +158,13 @@ public class MessagesTest {
     Messages messages = new Messages();
     YamlConfiguration valid = new YamlConfiguration();
     valid.set("debug_enabled", "<green>Diagnose aktiv.</green>");
-    messages.reload(valid, "language.yml");
+    messages.reload(valid, "language.yml", "en_US");
     YamlConfiguration language = new YamlConfiguration();
     language.set("unknown_message", "Unexpected");
 
     IllegalArgumentException exception = assertThrows(
         IllegalArgumentException.class,
-        () -> messages.reload(language, "language.yml")
+        () -> messages.reload(language, "language.yml", "en_US")
     );
 
     assertTrue(exception.getMessage().contains("UNUSED_KEY"));
@@ -182,7 +198,7 @@ public class MessagesTest {
 
     IllegalArgumentException exception = assertThrows(
         IllegalArgumentException.class,
-        () -> messages.reload(language, "language.yml")
+        () -> messages.reload(language, "language.yml", "en_US")
     );
 
     assertTrue(exception.getMessage().contains("placeholders cannot be used inside MiniMessage tags"));
@@ -223,22 +239,20 @@ public class MessagesTest {
   public void operationalLanguageSettingsAreNotTreatedAsMessageKeys() {
     Messages messages = new Messages();
     YamlConfiguration language = new YamlConfiguration();
-    language.set("locale", "en_US");
     language.set("config_reloaded_sound", "ENTITY_EXPERIENCE_ORB_PICKUP");
     language.set("config_reloaded_sound_volume", 1.0);
     language.set("config_reloaded_sound_pitch", 1.6);
 
-    assertTrue(messages.reload(language, "language.yml").applied());
+    assertTrue(messages.reload(language, "language.yml", "en_US").applied());
   }
 
   @Test
   public void directorHelpUsesTheSameOverlayAndProducesValidMiniMessage() {
     Messages messages = new Messages();
     YamlConfiguration language = new YamlConfiguration();
-    language.set("locale", "de_DE");
     language.set("command.description.reload", "HiddenOre neu laden");
     language.set("director.help.no_parameters", "Keine Parameter.");
-    messages.reload(language, "language.yml");
+    messages.reload(language, "language.yml", "de_DE");
     DirectorRuntimeEngine engine = DirectorEngineFactory.create(new HelpCommands());
     DirectorMiniMenu.DirectorHelpPage page = DirectorMiniMenu.resolveHelp(engine, List.of()).orElseThrow();
     List<String> rendered = DirectorMiniMenu.render(

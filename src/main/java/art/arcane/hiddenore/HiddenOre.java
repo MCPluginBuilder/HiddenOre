@@ -36,11 +36,19 @@ import java.nio.file.Files;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class HiddenOre extends JavaPlugin implements ReloadAware {
+  // bstats.org plugin id
+  private static final int BSTATS_PLUGIN_ID = 27610;
+  private static final long LOG_THROTTLE_NANOS = TimeUnit.MINUTES.toNanos(1L);
   private static volatile BukkitAudiences audiences;
   private final Set<UUID> debugPlayers = ConcurrentHashMap.newKeySet();
+  private final ConcurrentMap<String, LogThrottle> logThrottles = new ConcurrentHashMap<>();
   private GenerationRules generationRules;
   private ConfigWatcher configWatcher;
   private HiddenOreCommandService commandService;
@@ -49,8 +57,6 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   private ChunkPositionSet placedBlocks;
   private ChunkPositionSet consumedVeins;
   private HiddenOreAPI api;
-  // bstats.org plugin id
-  private static final int BSTATS_PLUGIN_ID = 27610;
   // HiddenOreMetrics owns all bstats types; never reference them from this class (slimjar link trap)
   private HiddenOreMetrics metrics;
   private volatile RuntimeState runtimeState;
@@ -59,10 +65,10 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   private boolean serviceRegistered;
 
   public HiddenOre() {
-    getLogger().info("Loading dependencies...");
+    info("Loading dependencies...");
     new SpigotApplicationBuilder(this)
       .build();
-    getLogger().info("Dependencies loaded.");
+    info("Dependencies loaded.");
   }
 
   @Override
@@ -71,7 +77,10 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
 
     try {
       audiences = BukkitAudiences.create(this);
-      saveDefaultConfig();
+      File configFile = new File(getDataFolder(), "hiddenore.yml");
+      if (!configFile.exists()) {
+        saveResource("hiddenore.yml", false);
+      }
       File langFile = new File(getDataFolder(), "language.yml");
       if (!langFile.exists()) {
         saveResource("language.yml", false);
@@ -93,20 +102,20 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       placeholderService.register();
       getServer().getServicesManager().register(HiddenOreService.class, api, this, ServicePriority.Normal);
       serviceRegistered = true;
-      getLogger().info("HiddenOre service registered for third-party integrations");
+      debug("HiddenOre service registered for third-party integrations.");
       configWatcher = new ConfigWatcher(this);
       AppliedConfigSnapshot startupSnapshot = appliedConfigSnapshot;
       if (startupSnapshot == null) {
         throw new IllegalStateException("HiddenOre configuration snapshot is unavailable after startup reload");
       }
       configWatcher.startWithAppliedSnapshot(startupSnapshot.configYaml(), startupSnapshot.languageYaml());
-      SplashScreen.print(this, true, "");
+      SplashScreen.print(this, true);
     } catch (Exception exception) {
-      getLogger().log(Level.SEVERE, "Error enabling plugin", exception);
+      logException(Level.SEVERE, exception, "HiddenOre failed to enable.");
       try {
-        SplashScreen.print(this, false, exception.getMessage());
+        SplashScreen.print(this, false);
       } catch (RuntimeException splashException) {
-        getLogger().log(Level.SEVERE, "Error rendering the HiddenOre startup failure screen", splashException);
+        logException(Level.SEVERE, splashException, "Error rendering the HiddenOre startup failure screen.");
       } finally {
         drain();
         getServer().getPluginManager().disablePlugin(this);
@@ -116,19 +125,15 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
 
     if (generationRules != null) {
       if (generationRules.isEnabled()) {
-        getLogger().info("HiddenOre is currently configured to remove ores from newly generated chunks");
-        getLogger().info("If this is unintended, you can disable it in the config");
-      } else {
-        getLogger().info("HiddenOre has the ability to remove ores as they generate in new chunks,");
-        getLogger().info("you can enable this ability in the config.");
+        info("Ore replacement in newly generated chunks is enabled; verify ore-removal.enabled if this is unintended.");
       }
     }
 
-    if (BSTATS_PLUGIN_ID > 0) {
+    if (BSTATS_PLUGIN_ID > 0 && getRuntimeState().metrics()) {
       try {
         metrics = HiddenOreMetrics.start(this, BSTATS_PLUGIN_ID);
       } catch (RuntimeException exception) {
-        getLogger().log(Level.WARNING, "Failed to initialize HiddenOre metrics", exception);
+        logException(Level.WARNING, exception, "Failed to initialize HiddenOre metrics.");
       }
     }
   }
@@ -140,8 +145,39 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
 
   @Override
   public void onPreUnload(ReloadAware.PreUnloadReason reason) {
-    getLogger().info("BileTools pre-unload hook fired (" + reason + "). Draining HiddenOre runtime services.");
+    info("BileTools pre-unload hook fired (%s). Draining HiddenOre runtime services.", reason);
     drain();
+  }
+
+  public void info(String message, Object... args) {
+    log(Level.INFO, message, args);
+  }
+
+  public void debug(String message, Object... args) {
+    log(Level.FINE, message, args);
+  }
+
+  public void warn(String message, Object... args) {
+    log(Level.WARNING, message, args);
+  }
+
+  public void warnThrottled(String key, String message, Object... args) {
+    Logger logger = getLogger();
+    if (!logger.isLoggable(Level.WARNING)) {
+      return;
+    }
+    long suppressed = claimLog(key);
+    if (suppressed < 0L) {
+      return;
+    }
+    logger.warning(withSuppressed(format(message, args), suppressed));
+  }
+
+  public void logException(Level level, Throwable failure, String message, Object... args) {
+    Logger logger = getLogger();
+    if (logger.isLoggable(level)) {
+      logger.log(level, format(message, args), failure);
+    }
   }
 
   private synchronized void drain() {
@@ -179,7 +215,7 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       try {
         audiences.close();
       } catch (Throwable ex) {
-        getLogger().log(Level.WARNING, "Error closing Adventure audiences", ex);
+        logException(Level.WARNING, ex, "Error closing Adventure audiences.");
       }
       audiences = null;
     }
@@ -212,10 +248,10 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       throw new IllegalStateException("HiddenOre is shutting down");
     }
 
-    File configFile = new File(getDataFolder(), "config.yml");
+    File configFile = new File(getDataFolder(), "hiddenore.yml");
     File langFile = new File(getDataFolder(), "language.yml");
     AppliedConfigSnapshot snapshot = new AppliedConfigSnapshot(
-        readYaml(configFile, "config.yml"),
+        readYaml(configFile, "hiddenore.yml"),
         readYaml(langFile, "language.yml")
     );
     applyReloadSnapshot(configFile, langFile, snapshot);
@@ -230,13 +266,13 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       throw new IllegalStateException("HiddenOre is shutting down");
     }
 
-    File configFile = new File(getDataFolder(), "config.yml");
+    File configFile = new File(getDataFolder(), "hiddenore.yml");
     File langFile = new File(getDataFolder(), "language.yml");
     applyReloadSnapshot(configFile, langFile, new AppliedConfigSnapshot(configYaml, languageYaml));
   }
 
   private void applyReloadSnapshot(File configFile, File langFile, AppliedConfigSnapshot snapshot) {
-    YamlConfiguration config = loadYaml(snapshot.configYaml(), configFile, "config.yml");
+    YamlConfiguration config = loadYaml(snapshot.configYaml(), configFile, "hiddenore.yml");
     YamlConfiguration langConfig = loadYaml(snapshot.languageYaml(), langFile, "language.yml");
     applyReload(configFile, langFile, config, langConfig);
     appliedConfigSnapshot = snapshot;
@@ -248,11 +284,15 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
     MiningRuleManager nextRuleManager;
     boolean autoPickup;
     boolean suppressBlockDrop;
+    boolean metricsEnabled;
+    String language;
     GenerationRules.GenerationPolicy generationPolicy;
     try {
       nextRuleManager = new MiningRuleManager(config);
       autoPickup = optionalBoolean(config, "auto_pickup_drops", false);
       suppressBlockDrop = optionalBoolean(config, "suppress_block_drop_on_custom_drop", false);
+      metricsEnabled = optionalBoolean(config, "metrics", true);
+      language = optionalString(config, "language", "en_US");
       generationPolicy = GenerationRules.parsePolicy(config);
     } catch (IllegalArgumentException exception) {
       throw invalidConfiguration(configFile, exception);
@@ -262,7 +302,7 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
     ReloadNotification reloadNotification;
     try {
       nextMessages = new Messages();
-      nextMessages.reload(langConfig, langFile.getAbsolutePath());
+      nextMessages.reload(langConfig, langFile.getAbsolutePath(), language);
       reloadNotification = parseReloadNotification(langConfig);
     } catch (IllegalArgumentException exception) {
       throw invalidConfiguration(langFile, exception);
@@ -271,7 +311,7 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
     SeededVeinGenerator nextVeinGenerator = new SeededVeinGenerator(nextRuleManager.getAllDropRules());
 
     runtimeState = new RuntimeState(nextRuleManager, nextMessages, nextVeinGenerator, generationPolicy,
-        reloadNotification, autoPickup, suppressBlockDrop);
+        reloadNotification, autoPickup, suppressBlockDrop, metricsEnabled);
     HiddenOreTelemetry.countConfigReload();
   }
 
@@ -411,18 +451,57 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
     return (float) number;
   }
 
+  private void log(Level level, String message, Object... args) {
+    Logger logger = getLogger();
+    if (logger.isLoggable(level)) {
+      logger.log(level, format(message, args));
+    }
+  }
+
+  private long claimLog(String key) {
+    LogThrottle throttle = logThrottles.computeIfAbsent(key, ignored -> new LogThrottle());
+    return throttle.claim(System.nanoTime());
+  }
+
+  private static String format(String message, Object... args) {
+    return args.length > 0 ? String.format(message, args) : message;
+  }
+
+  private static String withSuppressed(String message, long suppressed) {
+    return suppressed > 0L ? message + " (" + suppressed + " similar failures suppressed.)" : message;
+  }
+
   public record RuntimeState(MiningRuleManager ruleManager,
                              Messages messages,
                              SeededVeinGenerator veinGenerator,
                              GenerationRules.GenerationPolicy generationPolicy,
                              ReloadNotification reloadNotification,
                              boolean autoPickup,
-                             boolean suppressBlockDrop) {
+                             boolean suppressBlockDrop,
+                             boolean metrics) {
   }
 
   public record ReloadNotification(Sound sound, float volume, float pitch) {
   }
 
   private record AppliedConfigSnapshot(String configYaml, String languageYaml) {
+  }
+
+  private static final class LogThrottle {
+    private final AtomicLong nextLogAtNanos = new AtomicLong(Long.MIN_VALUE);
+    private final AtomicLong suppressed = new AtomicLong();
+
+    private long claim(long nowNanos) {
+      while (true) {
+        long next = nextLogAtNanos.get();
+        if (next != Long.MIN_VALUE && nowNanos - next < 0L) {
+          suppressed.incrementAndGet();
+          return -1L;
+        }
+        if (nextLogAtNanos.compareAndSet(next, nowNanos + LOG_THROTTLE_NANOS)) {
+          return suppressed.getAndSet(0L);
+        }
+      }
+    }
   }
 }

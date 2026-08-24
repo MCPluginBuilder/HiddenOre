@@ -240,7 +240,8 @@ public final class GenerationRules extends BlockPopulator implements Listener {
       try {
         world.getPopulators().removeIf(populator -> populator == this);
       } catch (RuntimeException exception) {
-        plugin.getLogger().log(Level.WARNING, "Failed to detach HiddenOre generation rules from world " + world.getName(), exception);
+        plugin.logException(Level.WARNING, exception,
+            "Failed to detach HiddenOre generation rules from world %s.", world.getName());
       }
     }
   }

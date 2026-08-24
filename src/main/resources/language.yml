@@ -1,4 +1,3 @@
-locale: en_US
 config_reloaded_sound: "ENTITY_EXPERIENCE_ORB_PICKUP"
 config_reloaded_sound_volume: 1.0
 config_reloaded_sound_pitch: 1.6

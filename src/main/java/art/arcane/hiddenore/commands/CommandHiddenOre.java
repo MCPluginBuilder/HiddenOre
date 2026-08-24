@@ -58,7 +58,8 @@ public final class CommandHiddenOre {
       plugin.reloadAll();
       sendScheduled(sender, plugin.getMessages().component(Messages.RELOADED));
     } catch (RuntimeException exception) {
-      plugin.getLogger().log(Level.SEVERE, "HiddenOre reload failed; the previous runtime configuration remains active", exception);
+      plugin.logException(Level.SEVERE, exception,
+          "HiddenOre reload failed; the previous runtime configuration remains active.");
       sendScheduled(sender, previousMessages.component(Messages.RELOAD_FAILED));
     }
   }
@@ -66,7 +67,8 @@ public final class CommandHiddenOre {
   private void sendScheduled(CommandSender sender, Component message) {
     if (sender instanceof Player player) {
       if (!SchedulerUtils.runEntity(plugin, player, () -> HiddenOre.sendMessage(player, message))) {
-        plugin.getLogger().warning("Failed to schedule a HiddenOre reload response for " + player.getName());
+        plugin.warnThrottled("reload-response-scheduling",
+            "Failed to schedule a HiddenOre reload response for %s.", player.getName());
       }
       return;
     }

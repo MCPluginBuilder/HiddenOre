@@ -129,7 +129,7 @@ public class HiddenOrePlaceholderExpansionTest {
     }
     config.set("drops", drops);
 
-    return new HiddenOre.RuntimeState(new MiningRuleManager(config), null, null, null, null, false, false);
+    return new HiddenOre.RuntimeState(new MiningRuleManager(config), null, null, null, null, false, false, true);
   }
 
   private static OfflinePlayer player() {

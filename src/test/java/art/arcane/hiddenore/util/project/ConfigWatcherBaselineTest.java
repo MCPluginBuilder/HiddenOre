@@ -27,12 +27,12 @@ public class ConfigWatcherBaselineTest {
     Path directory = temporaryFolder.newFolder("hiddenore-startup").toPath();
     String appliedConfig = "auto_pickup_drops: false\n";
     String appliedLanguage = "config_reloaded_message: old\n";
-    Files.writeString(directory.resolve("config.yml"), appliedConfig, StandardCharsets.UTF_8);
+    Files.writeString(directory.resolve("hiddenore.yml"), appliedConfig, StandardCharsets.UTF_8);
     Files.writeString(directory.resolve("language.yml"), appliedLanguage, StandardCharsets.UTF_8);
     Map<String, String> baseline = ConfigWatcher.appliedSignatures(appliedConfig, appliedLanguage);
 
     assertEquals(baseline, ConfigWatcher.diskSignatures(directory));
-    Files.writeString(directory.resolve("config.yml"), "auto_pickup_drops: true\n", StandardCharsets.UTF_8);
+    Files.writeString(directory.resolve("hiddenore.yml"), "auto_pickup_drops: true\n", StandardCharsets.UTF_8);
 
     assertNotEquals(baseline, ConfigWatcher.diskSignatures(directory));
   }
@@ -43,7 +43,7 @@ public class ConfigWatcherBaselineTest {
     String appliedConfig = "auto_pickup_drops: false\n";
     String appliedLanguage = "config_reloaded_message: applied\n";
     Map<String, String> baseline = ConfigWatcher.appliedSignatures(appliedConfig, appliedLanguage);
-    Files.writeString(directory.resolve("config.yml"), appliedConfig, StandardCharsets.UTF_8);
+    Files.writeString(directory.resolve("hiddenore.yml"), appliedConfig, StandardCharsets.UTF_8);
     Files.writeString(directory.resolve("language.yml"), "config_reloaded_message: newer\n", StandardCharsets.UTF_8);
 
     assertNotEquals(baseline, ConfigWatcher.diskSignatures(directory));
@@ -52,7 +52,7 @@ public class ConfigWatcherBaselineTest {
   @Test
   public void sameMetadataEditChangesExactDiskSignature() throws Exception {
     Path directory = temporaryFolder.newFolder("hiddenore-same-metadata").toPath();
-    Path configFile = directory.resolve("config.yml");
+    Path configFile = directory.resolve("hiddenore.yml");
     String appliedConfig = "enabled: false\n";
     String changedConfig = "enabled: true \n";
     String language = "config_reloaded_message: stable\n";
