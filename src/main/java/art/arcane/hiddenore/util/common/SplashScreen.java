@@ -8,6 +8,8 @@ import net.md_5.bungee.api.ChatColor;
 import java.util.logging.Level;
 
 public final class SplashScreen {
+  private static final String LOG_DISCRIMINATOR = ComponentLog.discriminator("HiddenOre", "&6");
+
   private SplashScreen() {
   }
 
@@ -32,7 +34,7 @@ public final class SplashScreen {
             + dark + "██" + accent + "║  " + dark + "██" + accent + "║" + dark + "██" + accent + "║" + dark + "██████" + accent + "╔╝" + dark + "██████" + accent + "╔╝" + dark + "███████" + accent + "╗" + dark + "██" + accent + "║ ╚" + dark + "████" + accent + "║╚" + dark + "██████" + accent + "╔╝" + dark + "██" + accent + "║  " + dark + "██" + accent + "║" + dark + "███████" + accent + "╗" + meta + "   Server: " + accent + serverVersion + meta + " | MC Support: " + accent + supportedMcVersion + "\n"
             + accent + "╚═╝  ╚═╝╚═╝╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝" + meta + "   Java: " + accent + SplashScreenSupport.javaMajorVersion() + meta + " | Date: " + accent + startupDate + "\n";
 
-    ComponentLog.logLegacy(plugin, plugin.getLogger(), "[HiddenOre] ", Level.INFO, splash, null);
+    ComponentLog.logLegacy(plugin, plugin.getLogger(), LOG_DISCRIMINATOR, Level.INFO, splash, null);
   }
 
   private static String rainbowStudioName() {
