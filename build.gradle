@@ -169,5 +169,14 @@ void createOutputTask(String name, String path, boolean doRename = true) {
         if (doRename) {
             rename { String ignored -> 'HiddenOre.jar' }
         }
+        if (name == 'PsychoLT') {
+            doLast {
+                project.copy {
+                    from(shadowJarTask.get().archiveFile.get().asFile)
+                    into(project.file('../PluginOuts'))
+                    rename { String ignored -> "HiddenOre-${project.version}.jar" }
+                }
+            }
+        }
     }
 }
