@@ -5,6 +5,10 @@ import art.arcane.volmlib.util.director.DirectorTextResolver;
 import art.arcane.volmlib.util.localization.LinesKey;
 import art.arcane.volmlib.util.localization.LinesValue;
 import art.arcane.volmlib.util.localization.LocaleOverlay;
+import art.arcane.volmlib.util.localization.PluginLanguageService;
+import art.arcane.volmlib.util.localization.PluginLanguageEditor;
+import art.arcane.volmlib.util.localization.LanguageFileEditor;
+import art.arcane.volmlib.util.localization.RemoteLanguageCatalog;
 import art.arcane.volmlib.util.localization.LocalizationCandidate;
 import art.arcane.volmlib.util.localization.LocalizationIssue;
 import art.arcane.volmlib.util.localization.LocalizationManager;
@@ -25,12 +29,15 @@ import art.arcane.volmlib.util.localization.VolmitLocales;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Files;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +45,8 @@ import java.util.Objects;
 import java.util.Set;
 
 public final class Messages {
+  public static final TextKey DEBUG_DUMP_DESCRIPTION = TextKey.of("command.description.debugdump", "Create and optionally upload a diagnostic report");
+  public static final TextKey DEBUG_DUMP_UPLOAD = TextKey.of("command.parameter.debugdump_upload", "Upload the report to mclo.gs");
   public static final TextKey PREFIX = TextKey.of("prefix", "<green>[HiddenOre]</green> ");
   public static final TextKey NO_PERMISSION = TextKey.of(
       "no_permission",
@@ -121,6 +130,8 @@ public final class Messages {
       "config_reloaded_sound_pitch"
   );
   private static final List<MessageKey> PLUGIN_KEYS = List.of(
+    DEBUG_DUMP_DESCRIPTION,
+    DEBUG_DUMP_UPLOAD,
       PREFIX,
       NO_PERMISSION,
       RELOADED,
@@ -144,8 +155,18 @@ public final class Messages {
   private static final MessageCatalog CATALOG = createCatalog();
 
   private final LocalizationManager manager;
+  private final RemoteLanguageCatalog remoteCatalog;
+  private final Path languageDirectory;
+  private PluginLanguageService languageService;
+  private String activeLocale = ENGLISH_LOCALE;
 
   public Messages() {
+    this(null, null);
+  }
+
+  public Messages(RemoteLanguageCatalog remoteCatalog, Path languageDirectory) {
+    this.remoteCatalog = remoteCatalog;
+    this.languageDirectory = languageDirectory;
     manager = new LocalizationManager(LocalizationCandidate.english(CATALOG, PluralSelector.oneOther()));
     validateCatalogTemplates();
   }
@@ -156,6 +177,7 @@ public final class Messages {
     String requestedLocale = requireLocale(locale, "hiddenore.yml");
     LocalizationReloadResult result = manager.reload(() -> loadCandidate(configuration, overlaySource, requestedLocale));
     if (result.applied()) {
+      activeLocale = requestedLocale;
       return result;
     }
     throw invalidReload(overlaySource, result);
@@ -166,7 +188,7 @@ public final class Messages {
   }
 
   public Component component(TextKey key, MessageArgs arguments) {
-    LocalizationSnapshot snapshot = manager.snapshot();
+    LocalizationSnapshot snapshot = selectedSnapshot(null);
     ResolvedText resolved = snapshot.resolve(key, arguments);
     String prefix = snapshot.resolve(PREFIX).template();
     return MINI_MESSAGE.deserialize(prefix + interpolate(resolved.template(), resolved.arguments()));
@@ -177,7 +199,7 @@ public final class Messages {
   }
 
   public List<Component> components(LinesKey key, MessageArgs arguments) {
-    LocalizationSnapshot snapshot = manager.snapshot();
+    LocalizationSnapshot snapshot = selectedSnapshot(null);
     ResolvedLines resolved = snapshot.resolve(key, arguments);
     String prefix = snapshot.resolve(PREFIX).template();
     List<Component> components = new ArrayList<>(resolved.lines().size());
@@ -185,6 +207,106 @@ public final class Messages {
       components.add(MINI_MESSAGE.deserialize(prefix + interpolate(line, resolved.arguments())));
     }
     return List.copyOf(components);
+  }
+
+  public Component component(CommandSender sender, TextKey key) {
+    return component(sender, key, MessageArgs.empty());
+  }
+
+  public Component component(CommandSender sender, TextKey key, MessageArgs arguments) {
+    LocalizationSnapshot snapshot = selectedSnapshot(sender);
+    ResolvedText resolved = snapshot.resolve(key, arguments);
+    String prefix = snapshot.resolve(PREFIX).template();
+    return MINI_MESSAGE.deserialize(prefix + interpolate(resolved.template(), resolved.arguments()));
+  }
+
+  public void languageService(PluginLanguageService languageService) {
+    this.languageService = languageService;
+  }
+
+  public LocalizationSnapshot defaultSnapshot() {
+    return manager.snapshot();
+  }
+
+  public synchronized void install(LocalizationSnapshot prepared) {
+    manager.install(prepared);
+    activeLocale = prepared.overlays().isEmpty() ? ENGLISH_LOCALE : prepared.overlays().getFirst().locale();
+  }
+
+  public PluginLanguageEditor.Options editorOptions() {
+    return new PluginLanguageEditor.Options(this::loadEditorSnapshot, this::saveEditor);
+  }
+
+  private LocalizationSnapshot loadEditorSnapshot(String locale) throws Exception {
+    Path path = languageDirectory.getParent().resolve("language.yml");
+    YamlConfiguration yaml = new YamlConfiguration();
+    yaml.loadFromString(Files.readString(path));
+    return LocalizationSnapshot.create(loadCandidate(yaml, path.toString(), locale));
+  }
+
+  private synchronized LocalizationSnapshot saveEditor(PluginLanguageEditor.Edit edit) throws Exception {
+    Path globalPath = languageDirectory.getParent().resolve("language.yml");
+    YamlConfiguration global = new YamlConfiguration();
+    global.loadFromString(Files.readString(globalPath));
+    LocalizationCandidate base = loadBaseCandidate(global, globalPath.toString(), edit.locale());
+    Path path = overridePath(edit.locale());
+    LocalizationSnapshot prepared = LanguageFileEditor.update(path, raw -> {
+      YamlConfiguration yaml = new YamlConfiguration();
+      try {
+        yaml.loadFromString(raw);
+      } catch (InvalidConfigurationException exception) {
+        throw new IOException("Could not parse language overrides: " + path, exception);
+      }
+      LocalizationSnapshot current = withOverride(base, parseEditorOverlay(yaml, edit.locale()));
+      MessageKey key = CATALOG.key(edit.key());
+      if (key == null || !current.value(key).equals(edit.expected())) {
+        throw new IOException("Language message changed while it was being edited: " + edit.key());
+      }
+      yaml.set("locale", edit.locale());
+      MessageValue value = edit.value();
+      if (value instanceof TextValue text) {
+        yaml.set(edit.key(), text.template());
+      } else if (value instanceof LinesValue lines) {
+        yaml.set(edit.key(), lines.lines());
+      } else {
+        throw new IllegalArgumentException("Unsupported language message shape: " + edit.key());
+      }
+      LocalizationSnapshot updated = withOverride(base, parseEditorOverlay(yaml, edit.locale()));
+      return new LanguageFileEditor.Prepared<>(yaml.saveToString(), updated);
+    });
+    if (activeLocale.equals(edit.locale())) {
+      manager.install(prepared);
+    }
+    return prepared;
+  }
+
+  private Path overridePath(String locale) {
+    if (!locale.matches("[A-Za-z0-9_-]{2,32}")) {
+      throw new IllegalArgumentException("Invalid language locale: " + locale);
+    }
+    return languageDirectory.resolve("overrides").resolve(locale + ".yml");
+  }
+
+  private LocaleOverlay parseEditorOverlay(YamlConfiguration yaml, String locale) {
+    if (yaml.contains("locale") && !locale.equals(yaml.getString("locale"))) {
+      throw new IllegalArgumentException("Language override must declare locale: " + locale);
+    }
+    return loadOverlay(yaml, overridePath(locale).toString(), locale, true);
+  }
+
+  private LocalizationSnapshot withOverride(LocalizationCandidate base, LocaleOverlay override) {
+    List<LocaleOverlay> overlays = new ArrayList<>(base.overlays().size() + 1);
+    overlays.add(override);
+    overlays.addAll(base.overlays());
+    return LocalizationSnapshot.create(new LocalizationCandidate(CATALOG, overlays, PluralSelector.oneOther()));
+  }
+
+  private LocalizationSnapshot selectedSnapshot(CommandSender sender) {
+    if (languageService == null) {
+      return manager.snapshot();
+    }
+    return sender instanceof Player player
+        ? languageService.snapshot(player.getUniqueId()) : languageService.snapshot();
   }
 
   public DirectorTextResolver directorResolver() {
@@ -204,7 +326,7 @@ public final class Messages {
     if (!(definition instanceof TextKey textKey)) {
       return DirectorTextResolver.ENGLISH.resolve(key, arguments);
     }
-    ResolvedText resolved = manager.snapshot().resolve(textKey, arguments);
+    ResolvedText resolved = selectedSnapshot(null).resolve(textKey, arguments);
     String text = PLAIN_SERIALIZER.serialize(
         MINI_MESSAGE.deserialize(interpolate(resolved.template(), resolved.arguments()))
     );
@@ -219,11 +341,31 @@ public final class Messages {
   }
 
   private LocalizationCandidate loadCandidate(YamlConfiguration language, String source, String locale) throws Exception {
+    LocalizationCandidate base = loadBaseCandidate(language, source, locale);
+    if (languageDirectory == null) {
+      return base;
+    }
+    Path path = overridePath(locale);
+    if (!Files.exists(path)) {
+      return base;
+    }
+    if (!Files.isRegularFile(path) || Files.size(path) > 2L * 1024L * 1024L) {
+      throw new IOException("Language override is not a regular file within the size limit: " + path);
+    }
+    YamlConfiguration yaml = new YamlConfiguration();
+    yaml.loadFromString(Files.readString(path));
+    List<LocaleOverlay> overlays = new ArrayList<>(base.overlays().size() + 1);
+    overlays.add(parseEditorOverlay(yaml, locale));
+    overlays.addAll(base.overlays());
+    return new LocalizationCandidate(CATALOG, overlays, PluralSelector.oneOther());
+  }
+
+  private LocalizationCandidate loadBaseCandidate(YamlConfiguration language, String source, String locale) throws Exception {
     List<LocaleOverlay> overlays = new ArrayList<>();
     overlays.add(loadOverlay(language, source, locale, false));
-    LocaleOverlay bundled = loadBundledOverlay(locale);
-    if (bundled != null) {
-      overlays.add(bundled);
+    LocaleOverlay downloaded = loadDownloadedOverlay(locale);
+    if (downloaded != null) {
+      overlays.add(downloaded);
     }
     return new LocalizationCandidate(CATALOG, overlays, PluralSelector.oneOther());
   }
@@ -241,29 +383,26 @@ public final class Messages {
     return overlay.build();
   }
 
-  private LocaleOverlay loadBundledOverlay(String locale) throws Exception {
-    if (VolmitLocales.ENGLISH.equals(locale)) {
+  private LocaleOverlay loadDownloadedOverlay(String locale) throws Exception {
+    if (VolmitLocales.ENGLISH.equals(locale) || remoteCatalog == null) {
       return null;
     }
+    Path file = languageDirectory.resolve(locale + ".yml");
+    String raw = remoteCatalog.readOrInstall(locale, file, (selectedLocale, content) ->
+        LocalizationSnapshot.create(new LocalizationCandidate(CATALOG,
+            List.of(parseDownloadedOverlay(selectedLocale, content)), PluralSelector.oneOther())));
+    return parseDownloadedOverlay(locale, raw);
+  }
 
-    String resourcePath = "/languages/" + locale + ".yml";
-    InputStream input = Messages.class.getResourceAsStream(resourcePath);
-    if (input == null) {
-      if (VolmitLocales.isBundled(locale)) {
-        throw new IllegalArgumentException("Missing bundled language resource: " + resourcePath);
-      }
-      return null;
+  private LocaleOverlay parseDownloadedOverlay(String locale, String raw) throws Exception {
+    String source = "languages/" + locale + ".yml";
+    YamlConfiguration language = new YamlConfiguration();
+    language.loadFromString(raw);
+    String declaredLocale = readLocale(language, source);
+    if (!locale.equals(declaredLocale)) {
+      throw invalid(source, "locale", "expected " + locale + " but found " + declaredLocale);
     }
-
-    try (InputStream stream = input; InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
-      YamlConfiguration language = new YamlConfiguration();
-      language.load(reader);
-      String declaredLocale = readLocale(language, resourcePath);
-      if (!locale.equals(declaredLocale)) {
-        throw invalid(resourcePath, "locale", "expected " + locale + " but found " + declaredLocale);
-      }
-      return loadOverlay(language, resourcePath, locale, true);
-    }
+    return loadOverlay(language, source, locale, true);
   }
 
   private String readLocale(YamlConfiguration language, String source) {

@@ -1,5 +1,14 @@
 package art.arcane.hiddenore;
 
+import art.arcane.volmlib.util.diagnostics.BukkitDebugDump;
+import art.arcane.volmlib.util.diagnostics.DebugDumpContributor;
+import art.arcane.volmlib.util.io.AtomicFileIO;
+import art.arcane.volmlib.util.localization.BukkitLanguageSwitcher;
+import art.arcane.volmlib.util.localization.LocalizationSnapshot;
+import art.arcane.volmlib.util.localization.PluginLanguageService;
+import art.arcane.volmlib.util.localization.PluginLanguageEditor;
+import art.arcane.volmlib.util.localization.RemoteLanguageCatalog;
+import art.arcane.volmlib.util.localization.VolmitLocales;
 import art.arcane.hiddenore.api.HiddenOreAPI;
 import art.arcane.hiddenore.api.HiddenOreService;
 import art.arcane.hiddenore.generation.GenerationRules;
@@ -18,6 +27,9 @@ import art.arcane.hiddenore.util.project.SoundResolver;
 import art.arcane.hiddenore.vein.SeededVeinGenerator;
 import art.arcane.volmlib.integration.ReloadAware;
 import art.arcane.volmlib.util.bukkit.ChunkPositionSet;
+import art.arcane.volmlib.util.director.help.DirectorMiniMenu;
+import art.arcane.volmlib.util.director.theme.DirectorProduct;
+import art.arcane.volmlib.util.director.theme.DirectorThemes;
 import art.arcane.volmlib.util.plugin.ComponentMessenger;
 import art.arcane.volmlib.util.plugin.ComponentText;
 import io.github.slimjar.app.builder.SpigotApplicationBuilder;
@@ -29,6 +41,7 @@ import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.net.URI;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -48,6 +61,11 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   private final Set<UUID> debugPlayers = ConcurrentHashMap.newKeySet();
   private final ConcurrentMap<String, LogThrottle> logThrottles = new ConcurrentHashMap<>();
   private GenerationRules generationRules;
+  private RemoteLanguageCatalog remoteLanguages;
+  private PluginLanguageService languageService;
+  private BukkitLanguageSwitcher languageSwitcher;
+  private BukkitDebugDump debugDump;
+  private volatile String languageLocale = "en_US";
   private ConfigWatcher configWatcher;
   private HiddenOreCommandService commandService;
   private HiddenOreIntegrationService integrationService;
@@ -72,6 +90,7 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   @Override
   public void onEnable() {
     draining = false;
+    debugDump = BukkitDebugDump.create(this, new BukkitDebugDump.Options(() -> true, this::captureDebugState));
 
     try {
       File configFile = new File(getDataFolder(), "hiddenore.yml");
@@ -86,7 +105,30 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
       consumedVeins = new ChunkPositionSet(this, "consumed_veins");
       api = new HiddenOreAPI(this);
       generationRules = new GenerationRules(this);
+      remoteLanguages = RemoteLanguageCatalog.load(new RemoteLanguageCatalog.Options(
+          "HiddenOre", URI.create("https://raw.githubusercontent.com/VolmitSoftware/HiddenOre/"),
+          "src/main/resources/languages", ".yml", "language-source.properties",
+          getDataFolder().toPath().resolve("languages/cache"), getClass().getClassLoader()));
       reloadAll();
+      String initialLocale = languageLocale;
+      languageLocale = "en_US";
+      languageService = new PluginLanguageService(new PluginLanguageService.Options(
+          getDataFolder().toPath().resolve("language-preferences.properties"), VolmitLocales::all,
+          () -> languageLocale, () -> getMessages().defaultSnapshot(), this::prepareLanguage,
+          this::selectLanguage, getLogger()));
+      getMessages().languageService(languageService);
+      languageSwitcher = BukkitLanguageSwitcher.register(this, languageService,
+          new BukkitLanguageSwitcher.Options("hiddenore", "hiddenore.admin",
+              DirectorMiniMenu.Theme.fromDirectorTheme(DirectorThemes.forProduct(DirectorProduct.HIDDENORE)),
+              (key, arguments) -> getMessages().directorText(key, arguments),
+              new PluginLanguageEditor.Options(
+                  locale -> getMessages().editorOptions().loader().load(locale), this::saveLanguageMessage)));
+      if (!initialLocale.equals("en_US")) {
+        languageService.selectDefault(initialLocale).exceptionally(failure -> {
+          logException(Level.WARNING, failure, "Unable to load the configured language; English remains active.");
+          return null;
+        });
+      }
       generationRules.start();
       getServer().getPluginManager().registerEvents(new MiningListener(this), this);
       getServer().getPluginManager().registerEvents(new PlacementListener(this), this);
@@ -138,6 +180,22 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   @Override
   public void onDisable() {
     drain();
+    if (debugDump != null) {
+      debugDump.close();
+      debugDump = null;
+    }
+    if (languageSwitcher != null) {
+      languageSwitcher.close();
+      languageSwitcher = null;
+    }
+    if (languageService != null) {
+      languageService.close();
+      languageService = null;
+    }
+    if (remoteLanguages != null) {
+      remoteLanguages.close();
+      remoteLanguages = null;
+    }
   }
 
   @Override
@@ -283,8 +341,9 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
     Messages nextMessages;
     ReloadNotification reloadNotification;
     try {
-      nextMessages = new Messages();
-      nextMessages.reload(langConfig, langFile.getAbsolutePath(), language);
+      boolean initializing = runtimeState == null;
+      nextMessages = new Messages(remoteLanguages, getDataFolder().toPath().resolve("languages"));
+      nextMessages.reload(langConfig, langFile.getAbsolutePath(), initializing ? "en_US" : language);
       reloadNotification = parseReloadNotification(langConfig);
     } catch (IllegalArgumentException exception) {
       throw invalidConfiguration(langFile, exception);
@@ -292,9 +351,50 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
 
     SeededVeinGenerator nextVeinGenerator = new SeededVeinGenerator(nextRuleManager.getAllDropRules());
 
+    nextMessages.languageService(languageService);
+    languageLocale = language;
+    if (languageService != null) {
+      languageService.invalidate();
+    }
     runtimeState = new RuntimeState(nextRuleManager, nextMessages, nextVeinGenerator, generationPolicy,
         reloadNotification, autoPickup, suppressBlockDrop, metricsEnabled);
     HiddenOreTelemetry.countConfigReload();
+  }
+
+  private DebugDumpContributor.Report captureDebugState() {
+    String state = "Language: " + languageLocale + "\nDraining: " + draining + "\nDebug players: " + debugPlayers.size();
+    return () -> state;
+  }
+
+  public BukkitDebugDump debugDump() {
+    return debugDump;
+  }
+
+  public BukkitLanguageSwitcher languageSwitcher() {
+    return languageSwitcher;
+  }
+
+  private LocalizationSnapshot prepareLanguage(String locale) {
+    Messages messages = new Messages(remoteLanguages, getDataFolder().toPath().resolve("languages"));
+    AppliedConfigSnapshot snapshot = appliedConfigSnapshot;
+    File file = new File(getDataFolder(), "language.yml");
+    YamlConfiguration overrides = loadYaml(snapshot.languageYaml(), file, "language.yml");
+    messages.reload(overrides, file.getAbsolutePath(), locale);
+    return messages.defaultSnapshot();
+  }
+
+  private synchronized LocalizationSnapshot saveLanguageMessage(PluginLanguageEditor.Edit edit) throws Exception {
+    return getMessages().editorOptions().writer().write(edit);
+  }
+
+  private synchronized void selectLanguage(String locale, LocalizationSnapshot prepared) throws Exception {
+    File file = new File(getDataFolder(), "hiddenore.yml");
+    YamlConfiguration configuration = loadYaml(readYaml(file, "hiddenore.yml"), file, "hiddenore.yml");
+    configuration.set("language", locale);
+    String raw = configuration.saveToString();
+    AtomicFileIO.writeString(file.toPath(), raw);
+    getMessages().install(prepared);
+    languageLocale = locale;
   }
 
   public boolean isDebug(UUID uuid) {

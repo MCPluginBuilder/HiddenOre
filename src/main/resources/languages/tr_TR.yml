@@ -17,7 +17,10 @@
   "command_hit": "<gray>Komut denetimi: chance={chance}, roll={roll} -> <green>başarılı</green></gray>"
   "command_miss": "<gray>Komut denetimi: chance={chance}, roll={roll} -> <red>başarısız</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Raporu mclo.gs üzerine yükle"
   "description":
+    "debugdump": "Tanılama raporu oluştur ve isteğe bağlı olarak yükle"
     "root": "HiddenOre komut grubu"
     "reload": "HiddenOre yapılandırmasını ve dil dosyalarını yeniden yükle"
     "debug": "Kendi maden hata ayıklama modunu değiştir"

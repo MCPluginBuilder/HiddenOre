@@ -17,7 +17,10 @@
   "command_hit": "<gray>Befehlsprüfung: chance={chance}, roll={roll} -> <green>Treffer</green></gray>"
   "command_miss": "<gray>Befehlsprüfung: chance={chance}, roll={roll} -> <red>Fehlschlag</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Den Bericht zu mclo.gs hochladen"
   "description":
+    "debugdump": "Einen Diagnosebericht erstellen und optional hochladen"
     "root": "HiddenOre-Befehlsgruppe"
     "reload": "HiddenOre-Konfiguration und Sprachdateien neu laden"
     "debug": "Erz-Debug-Modus für dich umschalten"

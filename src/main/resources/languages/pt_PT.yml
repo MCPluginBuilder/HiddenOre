@@ -17,7 +17,10 @@
   "command_hit": "<gray>Verificação do comando: chance={chance}, roll={roll} -> <green>acerto</green></gray>"
   "command_miss": "<gray>Verificação do comando: chance={chance}, roll={roll} -> <red>falha</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Carregar o relatório para mclo.gs"
   "description":
+    "debugdump": "Criar um relatório de diagnóstico e carregá-lo opcionalmente"
     "root": "Grupo de comandos do HiddenOre"
     "reload": "Recarregar a configuração e os ficheiros de idioma do HiddenOre"
     "debug": "Alternar o teu modo de depuração de minérios"

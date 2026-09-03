@@ -6,7 +6,13 @@ import art.arcane.volmlib.util.director.compat.DirectorEngineFactory;
 import art.arcane.volmlib.util.director.help.DirectorHelpMessages;
 import art.arcane.volmlib.util.director.help.DirectorMiniMenu;
 import art.arcane.volmlib.util.director.runtime.DirectorRuntimeEngine;
+import art.arcane.volmlib.util.localization.PluginLanguageEditor;
+import art.arcane.volmlib.util.localization.TextValue;
+import art.arcane.volmlib.util.localization.LocalizationSnapshot;
 import art.arcane.volmlib.util.localization.MessageArgs;
+import art.arcane.volmlib.util.localization.LanguageAudience;
+import art.arcane.volmlib.util.localization.PluginLanguageService;
+import art.arcane.volmlib.util.localization.RemoteLanguageCatalog;
 import art.arcane.volmlib.util.localization.LocalizationReloadResult;
 import art.arcane.volmlib.util.localization.MessageKey;
 import art.arcane.volmlib.util.localization.VolmitLocales;
@@ -17,20 +23,82 @@ import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.Test;
+import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
 
+import java.net.URI;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class MessagesTest {
+  @Rule
+  public TemporaryFolder temporaryFolder = new TemporaryFolder();
+  @Test
+  public void editorPersistsEnglishMessagesAndPreservesGlobalOverrides() throws Exception {
+    Path data = temporaryFolder.newFolder().toPath();
+    Path languages = Files.createDirectories(data.resolve("languages"));
+    Files.writeString(data.resolve("language.yml"), "prefix: ''\n");
+    Messages messages = new Messages(null, languages);
+    messages.reload(new YamlConfiguration(), "language.yml", "en_US");
+    PluginLanguageEditor.Options editor = messages.editorOptions();
+    LocalizationSnapshot original = editor.loader().load("en_US");
+    TextValue replacement = new TextValue("Edited permission message");
+    editor.writer().write(new PluginLanguageEditor.Edit("en_US", Messages.NO_PERMISSION.id(),
+        original.value(Messages.NO_PERMISSION), replacement));
+    TextValue editedReload = new TextValue("Reload complete");
+    editor.writer().write(new PluginLanguageEditor.Edit("en_US", Messages.RELOADED.id(),
+        original.value(Messages.RELOADED), editedReload));
+
+    assertEquals(replacement, messages.defaultSnapshot().value(Messages.NO_PERMISSION));
+    LocalizationSnapshot reloaded = editor.loader().load("en_US");
+    assertEquals(replacement, reloaded.value(Messages.NO_PERMISSION));
+    assertEquals(editedReload, reloaded.value(Messages.RELOADED));
+    assertEquals("prefix: ''\n", Files.readString(data.resolve("language.yml")));
+  }
+
+  @Test
+  public void editorLeavesActiveLocaleUnchangedAndRejectsInvalidOrStaleEdits() throws Exception {
+    Path data = temporaryFolder.newFolder().toPath();
+    Path languages = Files.createDirectories(data.resolve("languages"));
+    Files.writeString(data.resolve("language.yml"), "prefix: ''\n");
+    Files.writeString(languages.resolve("fr_FR.yml"), "locale: fr_FR\nno_permission: Permission\n");
+    try (RemoteLanguageCatalog remote = RemoteLanguageCatalog.load(new RemoteLanguageCatalog.Options(
+        "HiddenOre", URI.create("https://raw.githubusercontent.com/VolmitSoftware/HiddenOre/"),
+        "src/main/resources/languages", ".yml", "language-source.properties", languages.resolve("cache"),
+        Messages.class.getClassLoader()))) {
+      Messages messages = new Messages(remote, languages);
+      PluginLanguageEditor.Options editor = messages.editorOptions();
+      LocalizationSnapshot original = editor.loader().load("fr_FR");
+      Path file = languages.resolve("overrides/fr_FR.yml");
+      assertThrows(IllegalArgumentException.class, () -> editor.writer().write(new PluginLanguageEditor.Edit(
+          "fr_FR", Messages.NO_PERMISSION.id(), original.value(Messages.NO_PERMISSION), new TextValue("{unexpected}"))));
+      assertFalse(Files.exists(file));
+      TextValue replacement = new TextValue("Permission modifiee");
+      editor.writer().write(new PluginLanguageEditor.Edit("fr_FR", Messages.NO_PERMISSION.id(),
+          original.value(Messages.NO_PERMISSION), replacement));
+      byte[] saved = Files.readAllBytes(file);
+      assertThrows(IOException.class, () -> editor.writer().write(new PluginLanguageEditor.Edit(
+          "fr_FR", Messages.NO_PERMISSION.id(), original.value(Messages.NO_PERMISSION), new TextValue("Stale"))));
+      assertArrayEquals(saved, Files.readAllBytes(file));
+      assertEquals(Messages.NO_PERMISSION.englishValue(), messages.defaultSnapshot().value(Messages.NO_PERMISSION));
+      assertEquals(replacement, editor.loader().load("fr_FR").value(Messages.NO_PERMISSION));
+    }
+  }
+
   @Test
   public void englishDefaultsLiveInTheTypedJavaCatalog() {
     Messages messages = new Messages();
@@ -41,10 +109,12 @@ public class MessagesTest {
   }
 
   @Test
-  public void everyBundledLocaleFullyCoversTheTypedCatalog() {
+  public void everyDownloadableLocaleFullyCoversTheTypedCatalog() throws Exception {
     Messages messages = new Messages();
     for (String locale : VolmitLocales.nonEnglish()) {
       YamlConfiguration language = new YamlConfiguration();
+      language.load(Path.of("src/main/resources/languages", locale + ".yml").toFile());
+      language.set("locale", null);
       LocalizationReloadResult result = messages.reload(language, "language.yml", locale);
 
       assertTrue(locale, result.applied());
@@ -55,7 +125,7 @@ public class MessagesTest {
   }
 
   @Test
-  public void bundledResourceSetExactlyMatchesSharedManifest() throws Exception {
+  public void downloadableResourceSetExactlyMatchesSharedManifest() throws Exception {
     Set<String> expected = VolmitLocales.nonEnglish().stream()
         .map(locale -> locale + ".yml")
         .collect(Collectors.toUnmodifiableSet());
@@ -70,6 +140,34 @@ public class MessagesTest {
   }
 
   @Test
+  public void installedCatalogAndPersonalChoiceUseTheSharedRuntime() throws Exception {
+    Path directory = temporaryFolder.newFolder().toPath();
+    Files.copy(Path.of("src/main/resources/languages/de_DE.yml"), directory.resolve("de_DE.yml"));
+    Messages messages = new Messages();
+    UUID player = UUID.randomUUID();
+    try (RemoteLanguageCatalog remote = RemoteLanguageCatalog.load(new RemoteLanguageCatalog.Options(
+        "HiddenOre", URI.create("https://raw.githubusercontent.com/VolmitSoftware/HiddenOre/"),
+        "src/main/resources/languages", ".yml", "language-source.properties", directory.resolve("cache"),
+        Messages.class.getClassLoader()));
+         PluginLanguageService service = new PluginLanguageService(new PluginLanguageService.Options(
+             directory.resolve("preferences.properties"), VolmitLocales::all, () -> "en_US", messages::defaultSnapshot,
+             locale -> {
+               Messages selected = new Messages(remote, directory);
+               selected.reload(new YamlConfiguration(), "language.yml", locale);
+               return selected.defaultSnapshot();
+             }, (locale, prepared) -> messages.install(prepared), Logger.getAnonymousLogger()))) {
+      messages.languageService(service);
+      String english = text(messages.component(Messages.NO_PERMISSION));
+      service.selectPlayer(player, "de_DE").get(5, TimeUnit.SECONDS);
+      String translated = LanguageAudience.call(player, () -> text(messages.component(Messages.NO_PERMISSION)));
+      assertFalse(english.equals(translated));
+      assertEquals(english, text(messages.component(Messages.NO_PERMISSION)));
+      service.clearPlayer(player).get(5, TimeUnit.SECONDS);
+      assertEquals(english, LanguageAudience.call(player, () -> text(messages.component(Messages.NO_PERMISSION))));
+    }
+  }
+
+  @Test
   public void generatedFilesKeepLanguageAndMetricsInTheMainConfig() throws Exception {
     YamlConfiguration config = YamlConfiguration.loadConfiguration(Path.of("src/main/resources/hiddenore.yml").toFile());
     YamlConfiguration language = YamlConfiguration.loadConfiguration(Path.of("src/main/resources/language.yml").toFile());
@@ -78,16 +176,6 @@ public class MessagesTest {
     assertEquals("language", keys.get(0));
     assertEquals("metrics", keys.get(1));
     assertFalse(language.contains("locale"));
-  }
-
-  @Test
-  public void localeSelectorInLanguageFileIsRejected() {
-    Messages messages = new Messages();
-    YamlConfiguration language = new YamlConfiguration();
-    language.set("locale", "de_DE");
-
-    assertThrows(IllegalArgumentException.class,
-        () -> messages.reload(language, "language.yml", "en_US"));
   }
 
   @Test

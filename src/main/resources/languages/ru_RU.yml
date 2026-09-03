@@ -17,7 +17,10 @@
   "command_hit": "<gray>Проверка команды: chance={chance}, roll={roll} -> <green>успех</green></gray>"
   "command_miss": "<gray>Проверка команды: chance={chance}, roll={roll} -> <red>неудача</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Загрузить отчёт на mclo.gs"
   "description":
+    "debugdump": "Создать диагностический отчёт и при желании загрузить его"
     "root": "Группа команд HiddenOre"
     "reload": "Перезагрузить конфигурацию и языковые файлы HiddenOre"
     "debug": "Переключить свой режим отладки руды"

@@ -17,7 +17,10 @@
   "command_hit": "<gray>Verifica comando: chance={chance}, roll={roll} -> <green>successo</green></gray>"
   "command_miss": "<gray>Verifica comando: chance={chance}, roll={roll} -> <red>fallimento</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Carica il rapporto su mclo.gs"
   "description":
+    "debugdump": "Crea un rapporto diagnostico e caricalo facoltativamente"
     "root": "Gruppo di comandi HiddenOre"
     "reload": "Ricarica la configurazione e i file di lingua di HiddenOre"
     "debug": "Attiva o disattiva la tua modalità di debug dei minerali"

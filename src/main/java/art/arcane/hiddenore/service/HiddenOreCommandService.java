@@ -15,6 +15,7 @@ import art.arcane.volmlib.util.director.theme.DirectorProduct;
 import art.arcane.volmlib.util.director.theme.DirectorTheme;
 import art.arcane.volmlib.util.director.theme.DirectorThemes;
 import art.arcane.volmlib.util.plugin.ComponentMessenger;
+import art.arcane.volmlib.util.localization.LanguageAudience;
 import org.bukkit.SoundCategory;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -27,6 +28,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.logging.Level;
 
@@ -105,8 +107,18 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
       return false;
     }
 
-    if (!sender.hasPermission(ROOT_PERMISSION)) {
-      HiddenOre.sendMessage(sender, plugin.getMessages().component(Messages.NO_PERMISSION));
+    if (args.length > 0 && args[0].equalsIgnoreCase("language")) {
+      plugin.languageSwitcher().command(sender, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
+    return LanguageAudience.call(sender instanceof Player player ? player.getUniqueId() : null,
+        () -> executeCommand(sender, label, args));
+  }
+
+  private boolean executeCommand(CommandSender sender, String label, String[] args) {
+    if (!(args.length > 0 && args[0].equalsIgnoreCase("debugdump"))
+        && !sender.hasPermission(ROOT_PERMISSION)) {
+      HiddenOre.sendMessage(sender, plugin.getMessages().component(sender, Messages.NO_PERMISSION));
       return true;
     }
 
@@ -140,6 +152,17 @@ public final class HiddenOreCommandService implements CommandExecutor, TabComple
   @Nullable
   @Override
   public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
+    if (command.getName().equalsIgnoreCase(ROOT_COMMAND) && args.length > 1 && args[0].equalsIgnoreCase("debugdump")) {
+      return sender.hasPermission("hiddenore.debugdump") ? runDirectorTab(sender, alias, args) : List.of();
+    }
+    if (command.getName().equalsIgnoreCase(ROOT_COMMAND) && args.length == 1
+        && "debugdump".startsWith(args[0].toLowerCase(Locale.ROOT))
+        && sender.hasPermission("hiddenore.debugdump") && !sender.hasPermission(ROOT_PERMISSION)) {
+      return List.of("debugdump");
+    }
+    if (command.getName().equalsIgnoreCase(ROOT_COMMAND) && args.length > 0 && args[0].equalsIgnoreCase("language")) {
+      return plugin.languageSwitcher().complete(sender, Arrays.copyOfRange(args, 1, args.length));
+    }
     if (!command.getName().equalsIgnoreCase(ROOT_COMMAND) || !sender.hasPermission(ROOT_PERMISSION)) {
       return List.of();
     }

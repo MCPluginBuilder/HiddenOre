@@ -17,7 +17,10 @@
   "command_hit": "<gray>Opdrachtcontrole: chance={chance}, roll={roll} -> <green>raak</green></gray>"
   "command_miss": "<gray>Opdrachtcontrole: chance={chance}, roll={roll} -> <red>mis</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Upload het rapport naar mclo.gs"
   "description":
+    "debugdump": "Maak een diagnostisch rapport en upload het desgewenst"
     "root": "HiddenOre-opdrachtgroep"
     "reload": "HiddenOre-configuratie en taalbestanden opnieuw laden"
     "debug": "Je eigen erts-debugmodus omschakelen"

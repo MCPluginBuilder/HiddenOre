@@ -17,7 +17,10 @@
   "command_hit": "<gray>Kiểm tra lệnh: chance={chance}, roll={roll} -> <green>thành công</green></gray>"
   "command_miss": "<gray>Kiểm tra lệnh: chance={chance}, roll={roll} -> <red>thất bại</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Tải báo cáo lên mclo.gs"
   "description":
+    "debugdump": "Tạo báo cáo chẩn đoán và tải lên nếu muốn"
     "root": "Nhóm lệnh HiddenOre"
     "reload": "Nạp lại cấu hình và tệp ngôn ngữ của HiddenOre"
     "debug": "Bật hoặc tắt chế độ gỡ lỗi quặng của bạn"

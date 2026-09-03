@@ -17,7 +17,10 @@
   "command_hit": "<gray>Komandos patikra: chance={chance}, roll={roll} -> <green>pavyko</green></gray>"
   "command_miss": "<gray>Komandos patikra: chance={chance}, roll={roll} -> <red>nepavyko</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Įkelti ataskaitą į mclo.gs"
   "description":
+    "debugdump": "Sukurti diagnostikos ataskaitą ir pasirinktinai ją įkelti"
     "root": "HiddenOre komandų grupė"
     "reload": "Iš naujo įkelti HiddenOre konfigūraciją ir kalbos failus"
     "debug": "Perjungti savo rūdos derinimo režimą"

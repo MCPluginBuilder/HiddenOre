@@ -161,7 +161,7 @@ public class MiningListener implements Listener {
     List<CommandExec> commandsToExecute = List.of();
 
     if (placed && debug) {
-      HiddenOre.sendMessage(player, messages.component(
+      HiddenOre.sendMessage(player, messages.component(player,
           Messages.DEBUG_PLAYER_PLACED,
           MessageArgs.builder()
               .untrusted("block", blockType.name().toLowerCase(Locale.ROOT))
@@ -185,7 +185,7 @@ public class MiningListener implements Listener {
           vein = new HiddenVein(blockX, y, blockZ, -1, rule.material, HiddenVein.oreDisplayFor(rule.material, y));
           playDiscoverySound(player, veinConfig);
           if (debug) {
-            HiddenOre.sendMessage(player, messages.component(
+            HiddenOre.sendMessage(player, messages.component(player,
                 Messages.DEBUG_RANDOM_DROP,
                 MessageArgs.builder()
                     .untrusted("material", rule.material.name().toLowerCase(Locale.ROOT))
@@ -194,7 +194,7 @@ public class MiningListener implements Listener {
             ));
           }
         } else if (debug) {
-          HiddenOre.sendMessage(player, messages.component(
+          HiddenOre.sendMessage(player, messages.component(player,
               Messages.DEBUG_RANDOM_DROP_LOST,
               MessageArgs.builder()
                   .untrusted("material", rule.material.name().toLowerCase(Locale.ROOT))
@@ -228,7 +228,7 @@ public class MiningListener implements Listener {
             playDiscoverySound(player, veinConfig);
           }
           if (debug) {
-            HiddenOre.sendMessage(player, messages.component(
+            HiddenOre.sendMessage(player, messages.component(player,
                 firstOfVein ? Messages.DEBUG_VEIN_DROP_DISCOVERED : Messages.DEBUG_VEIN_DROP,
                 MessageArgs.builder()
                     .untrusted("vein", veinBlock.veinId())
@@ -238,7 +238,7 @@ public class MiningListener implements Listener {
             ));
           }
         } else if (debug) {
-          HiddenOre.sendMessage(player, messages.component(
+          HiddenOre.sendMessage(player, messages.component(player,
               Messages.DEBUG_VEIN_DROP_LOST,
               MessageArgs.builder()
                   .untrusted("vein", veinBlock.veinId())
@@ -390,7 +390,7 @@ public class MiningListener implements Listener {
         }
       }
       if (debug) {
-        HiddenOre.sendMessage(player, messages.component(
+        HiddenOre.sendMessage(player, messages.component(player,
             success ? Messages.DEBUG_COMMAND_HIT : Messages.DEBUG_COMMAND_MISS,
             MessageArgs.builder()
                 .untrusted("chance", rule.chance)

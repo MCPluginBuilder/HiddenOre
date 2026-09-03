@@ -17,7 +17,10 @@
   "command_hit": "<gray>בדיקת פקודה: chance={chance}, roll={roll} -> <green>הצלחה</green></gray>"
   "command_miss": "<gray>בדיקת פקודה: chance={chance}, roll={roll} -> <red>כישלון</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "העלאת הדוח אל mclo.gs"
   "description":
+    "debugdump": "יצירת דוח אבחון והעלאתו לפי בחירה"
     "root": "קבוצת הפקודות של HiddenOre"
     "reload": "טעינה מחדש של הגדרות HiddenOre וקובצי השפה"
     "debug": "הפעלה או השבתה של מצב ניפוי העפרות שלך"

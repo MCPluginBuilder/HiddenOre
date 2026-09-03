@@ -19,16 +19,29 @@ public final class CommandHiddenOre {
     this.plugin = plugin;
   }
 
+  @Director(name = "debugdump", sync = true, description = "Create and optionally upload a diagnostic report", descriptionKey = "command.description.debugdump")
+  public void debugdump(
+    @Param(name = "upload", defaultValue = "true", description = "Upload the report to mclo.gs", descriptionKey = "command.parameter.debugdump_upload") boolean upload,
+    @Param(name = "sender", contextual = true) CommandSender sender
+  ) {
+    plugin.debugDump().request(sender, upload);
+  }
+
+  @Director(name = "language", description = "Choose your language or the server language")
+  public void language(@Param(name = "sender", contextual = true) CommandSender sender) {
+    plugin.languageSwitcher().open(sender);
+  }
+
   @Director(name = "reload", description = "Reload HiddenOre configuration and language files", descriptionKey = "command.description.reload")
   public void reload(@Param(name = "sender", contextual = true) CommandSender sender) {
     Messages messages = plugin.getMessages();
     if (!sender.hasPermission("hiddenore.admin")) {
-      HiddenOre.sendMessage(sender, messages.component(Messages.NO_PERMISSION));
+      HiddenOre.sendMessage(sender, messages.component(sender, Messages.NO_PERMISSION));
       return;
     }
 
     if (!SchedulerUtils.runGlobal(plugin, () -> reloadAndRespond(sender, messages))) {
-      HiddenOre.sendMessage(sender, messages.component(Messages.RELOAD_FAILED));
+      HiddenOre.sendMessage(sender, messages.component(sender, Messages.RELOAD_FAILED));
     }
   }
 
@@ -36,31 +49,31 @@ public final class CommandHiddenOre {
   public void debug(@Param(name = "sender", contextual = true) CommandSender sender) {
     Messages messages = plugin.getMessages();
     if (!sender.hasPermission("hiddenore.admin")) {
-      HiddenOre.sendMessage(sender, messages.component(Messages.NO_PERMISSION));
+      HiddenOre.sendMessage(sender, messages.component(sender, Messages.NO_PERMISSION));
       return;
     }
 
     if (!(sender instanceof Player player)) {
-      HiddenOre.sendMessage(sender, messages.component(Messages.PLAYER_ONLY));
+      HiddenOre.sendMessage(sender, messages.component(sender, Messages.PLAYER_ONLY));
       return;
     }
 
     boolean nowDebug = plugin.toggleDebug(player.getUniqueId());
     if (nowDebug) {
-      HiddenOre.sendMessage(player, messages.component(Messages.DEBUG_ENABLED));
+      HiddenOre.sendMessage(player, messages.component(player, Messages.DEBUG_ENABLED));
     } else {
-      HiddenOre.sendMessage(player, messages.component(Messages.DEBUG_DISABLED));
+      HiddenOre.sendMessage(player, messages.component(player, Messages.DEBUG_DISABLED));
     }
   }
 
   private void reloadAndRespond(CommandSender sender, Messages previousMessages) {
     try {
       plugin.reloadAll();
-      sendScheduled(sender, plugin.getMessages().component(Messages.RELOADED));
+      sendScheduled(sender, plugin.getMessages().component(sender, Messages.RELOADED));
     } catch (RuntimeException exception) {
       plugin.logException(Level.SEVERE, exception,
           "HiddenOre reload failed; the previous runtime configuration remains active.");
-      sendScheduled(sender, previousMessages.component(Messages.RELOAD_FAILED));
+      sendScheduled(sender, previousMessages.component(sender, Messages.RELOAD_FAILED));
     }
   }
 

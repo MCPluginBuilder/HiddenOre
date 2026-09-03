@@ -12,9 +12,14 @@ softdepend:
 commands:
   hiddenore:
     description: HiddenOre base command.
-    usage: /hiddenore [reload|debug]
-    permission: hiddenore.admin
+    usage: /hiddenore [reload|debug|language]
 permissions:
+  hiddenore.debugdump:
+    description: Allows creating and optionally uploading diagnostic reports.
+    default: op
+  hiddenore.language.self:
+    description: Allows choosing your own language for this plugin.
+    default: true
   hiddenore.admin:
     description: Allows use of all Mining plugin commands
     default: op

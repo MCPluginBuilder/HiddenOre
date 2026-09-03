@@ -17,7 +17,10 @@
   "command_hit": "<gray>コマンド判定: chance={chance}, roll={roll} -> <green>成功</green></gray>"
   "command_miss": "<gray>コマンド判定: chance={chance}, roll={roll} -> <red>失敗</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "レポートを mclo.gs にアップロードする"
   "description":
+    "debugdump": "診断レポートを作成し、必要に応じてアップロードする"
     "root": "HiddenOreコマンドグループ"
     "reload": "HiddenOreの設定と言語ファイルを再読み込み"
     "debug": "自分の鉱石デバッグモードを切り替える"

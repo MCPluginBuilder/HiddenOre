@@ -17,7 +17,10 @@
   "command_hit": "<gray>Test de commande : chance={chance}, roll={roll} -> <green>réussite</green></gray>"
   "command_miss": "<gray>Test de commande : chance={chance}, roll={roll} -> <red>échec</red></gray>"
 "command":
+  "parameter":
+    "debugdump_upload": "Publier le rapport sur mclo.gs"
   "description":
+    "debugdump": "Créer un rapport de diagnostic et le publier si souhaité"
     "root": "Groupe de commandes HiddenOre"
     "reload": "Recharger la configuration et les fichiers de langue de HiddenOre"
     "debug": "Activer ou désactiver votre mode de débogage des minerais"
