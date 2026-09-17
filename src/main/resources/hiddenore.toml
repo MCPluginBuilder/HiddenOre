@@ -38,7 +38,8 @@ NETHER_GOLD_ORE = true
 NETHER_QUARTZ_ORE = true
 ANCIENT_DEBRIS = true
 
-# Listed blocks give rewards when mined with a pickaxe outside Creative mode.
+# Listed blocks give rewards when mined with a pickaxe outside Creative mode, and when blast
+# mining is on, when a qualifying explosion destroys them.
 # Example: add [blocks.netherrack] to manage netherrack too.
 [blocks.stone]
 # Base item to give when a reward does not suppress it.
@@ -53,6 +54,12 @@ drop = "cobbled_deepslate"
 generation = "seeded"
 # Allow hidden rewards from player-placed blocks; false prevents place-and-remine farming.
 allow_placed_blocks = false
+# Ceiling on the combined worst-case reward positions every item rule may target in one chunk:
+# 1 to 16384. Raise this to configure denser rewards than the default 1,024 allows.
+# Each rule charges veins_per_chunk rounded up, times vein_max_size, so a wide size range
+# spends this budget faster than it fills a chunk. Denser chunks cost more to generate and
+# hold, and the vein cache keeps fewer chunks at a time to stay within its memory budget.
+max_targets_per_chunk = 1024
 
 [veins.discovery_sound]
 # Sound for first-block vein discoveries or each random item reward; unknown names use the default.
@@ -62,6 +69,21 @@ sound = "BLOCK_BEACON_POWER_SELECT"
 volume = 1.0
 # Pitch: 0.5 to 2.0; 1.0 is normal.
 pitch = 1.0
+
+# Blast mining: rewards for blocks destroyed by explosions instead of mined.
+# Explosions carry no tool, so Fortune never applies and rewards always drop on the ground.
+[blast_mining]
+# Give hidden rewards for blocks destroyed by a qualifying explosion.
+enabled = false
+# Chance each destroyed block pays its reward: 0 never, 1 always.
+# One charge breaks far more blocks than a pickaxe does; keep this below 1.
+yield = 0.5
+# Pickaxe tier an explosion counts as, checked against each reward's tool_tiers.
+tool_tier = "IRON_PICKAXE"
+# Explosions that qualify.
+# Options: TNT, MINECART_TNT, CREEPER, END_CRYSTAL, FIREBALL, WITHER, ENDER_DRAGON, BED,
+# RESPAWN_ANCHOR. Wind charges never qualify; they only trigger the blocks they list.
+sources = [ "TNT", "MINECART_TNT" ]
 
 # Copy this item example to add rewards; all item rules share a 1,024-target-block limit.
 [[drops]]

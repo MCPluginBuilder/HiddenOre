@@ -1,5 +1,6 @@
 package art.arcane.hiddenore.rules;
 
+import art.arcane.hiddenore.blast.BlastConfig;
 import art.arcane.hiddenore.util.project.ToolTier;
 import art.arcane.hiddenore.vein.VeinConfig;
 import com.google.gson.JsonArray;
@@ -21,7 +22,6 @@ public final class MiningRuleManager {
   private static final String REQUIRED_BLOCKS = "expected a non-empty table; define at least one block with a drop material";
   static final double MAX_VEINS_PER_CHUNK = 64.0;
   static final int MAX_VEIN_SIZE = 256;
-  static final long MAX_GENERATION_BLOCK_TARGETS_PER_CHUNK = 1024L;
   static final int MAX_EXP_DROP = 1000;
 
   private final Map<Material, Material> guaranteedDrops;
@@ -29,20 +29,24 @@ public final class MiningRuleManager {
   private final List<ItemDropRule> commandRules;
   private final List<ItemDropRule> dropRules;
   private final VeinConfig veinConfig;
+  private final BlastConfig blastConfig;
 
   public MiningRuleManager(JsonObject config) {
     JsonObject activeConfig = Objects.requireNonNull(config, "config");
     Map<Material, Material> parsedGuaranteedDrops = parseGuaranteedDrops(activeConfig);
     VeinConfig parsedVeinConfig = parseVeinConfig(activeConfig);
+    BlastConfig parsedBlastConfig = BlastConfig.parse(activeConfig.get("blast_mining"));
     List<ItemDropRule> parsedItemRules = new ArrayList<>();
     List<ItemDropRule> parsedCommandRules = new ArrayList<>();
-    List<ItemDropRule> parsedDropRules = parseDropRules(activeConfig, parsedItemRules, parsedCommandRules);
+    List<ItemDropRule> parsedDropRules = parseDropRules(activeConfig, parsedVeinConfig.maxTargetsPerChunk,
+        parsedItemRules, parsedCommandRules);
 
     guaranteedDrops = Map.copyOf(parsedGuaranteedDrops);
     itemRules = List.copyOf(parsedItemRules);
     commandRules = List.copyOf(parsedCommandRules);
     dropRules = List.copyOf(parsedDropRules);
     veinConfig = parsedVeinConfig;
+    blastConfig = parsedBlastConfig;
   }
 
   public Material getGuaranteedDrop(Material blockType) {
@@ -63,6 +67,10 @@ public final class MiningRuleManager {
 
   public VeinConfig getVeinConfig() {
     return veinConfig;
+  }
+
+  public BlastConfig getBlastConfig() {
+    return blastConfig;
   }
 
   private static Map<Material, Material> parseGuaranteedDrops(JsonObject config) {
@@ -109,7 +117,8 @@ public final class MiningRuleManager {
     return new VeinConfig(veins);
   }
 
-  private static List<ItemDropRule> parseDropRules(JsonObject config, List<ItemDropRule> itemRules,
+  private static List<ItemDropRule> parseDropRules(JsonObject config, long maxTargetsPerChunk,
+                                                    List<ItemDropRule> itemRules,
                                                     List<ItemDropRule> commandRules) {
     if (!(config.get("drops") instanceof JsonArray configuredDrops)) {
       throw invalid("drops", "expected a non-empty list");
@@ -131,9 +140,9 @@ public final class MiningRuleManager {
         commandRules.add(rule);
       } else {
         long ruleBlockTargets = maximumGenerationBlockTargets(rule);
-        if (generationBlockTargets > MAX_GENERATION_BLOCK_TARGETS_PER_CHUNK - ruleBlockTargets) {
+        if (generationBlockTargets > maxTargetsPerChunk - ruleBlockTargets) {
           throw invalid(path, "combined worst-case generation work must be less than or equal to "
-              + MAX_GENERATION_BLOCK_TARGETS_PER_CHUNK + " target blocks per chunk");
+              + maxTargetsPerChunk + " target blocks per chunk; raise veins.max_targets_per_chunk to allow more");
         }
         generationBlockTargets += ruleBlockTargets;
         itemRules.add(rule);

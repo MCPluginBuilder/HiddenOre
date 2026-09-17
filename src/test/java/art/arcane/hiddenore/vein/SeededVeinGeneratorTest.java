@@ -4,12 +4,16 @@ import art.arcane.hiddenore.rules.ItemDropRule;
 import art.arcane.hiddenore.util.project.ToolTier;
 import art.arcane.volmlib.util.bukkit.ChunkPositionSet;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Proxy;
 import java.util.Map;
 import java.util.Set;
 
@@ -199,5 +203,57 @@ public class SeededVeinGeneratorTest {
       }
     }
     return positions;
+  }
+
+  @Test
+  public void get_denseChunksAreEvictedOnTheirPositionCountNotJustTheirChunkCount() {
+    List<ItemDropRule> dense = List.of(rule(Material.COAL, 64.0, 16, 16, 0, 320));
+    SeededVeinGenerator generator = new SeededVeinGenerator(dense);
+    World world = worldStub(UUID.randomUUID(), 4242L, -64, 320);
+
+    int perChunk = generator.get(world, 0, 0).size();
+    assertTrue("a dense rule should fill a chunk", perChunk > 500);
+
+    for (int chunk = 1; chunk < 3000; chunk++) {
+      generator.get(world, chunk % 60, chunk / 60);
+    }
+
+    assertTrue("cache must stay under the position budget", generator.cachedPositionCount() <= 1_000_000L);
+    assertTrue("eviction must have kicked in before the chunk ceiling",
+        generator.cachedChunkCount() < 3000);
+  }
+
+  @Test
+  public void get_sparseChunksStillFillTheChunkCache() {
+    List<ItemDropRule> sparse = List.of(rule(Material.EMERALD, 0.35, 1, 2, -16, 320));
+    SeededVeinGenerator generator = new SeededVeinGenerator(sparse);
+    World world = worldStub(UUID.randomUUID(), 99L, -64, 320);
+
+    for (int chunk = 0; chunk < 600; chunk++) {
+      generator.get(world, chunk % 30, chunk / 30);
+    }
+
+    assertEquals(600, generator.cachedChunkCount());
+    assertTrue(generator.cachedPositionCount() < 1_000_000L);
+  }
+
+  private static ItemDropRule rule(Material material, double veinsPerChunk, int minSize, int maxSize, int minY,
+                                   int maxY) {
+    return new ItemDropRule(material, veinsPerChunk, minSize, maxSize, minY, maxY, false,
+        Set.of(ToolTier.IRON_PICKAXE), 0);
+  }
+
+  private static World worldStub(UUID id, long seed, int minHeight, int maxHeight) {
+    InvocationHandler handler = (proxy, method, args) -> switch (method.getName()) {
+      case "getUID" -> id;
+      case "getSeed" -> seed;
+      case "getMinHeight" -> minHeight;
+      case "getMaxHeight" -> maxHeight;
+      case "hashCode" -> System.identityHashCode(proxy);
+      case "equals" -> proxy == args[0];
+      case "toString" -> "world-stub";
+      default -> throw new UnsupportedOperationException(method.getName());
+    };
+    return (World) Proxy.newProxyInstance(World.class.getClassLoader(), new Class<?>[]{World.class}, handler);
   }
 }

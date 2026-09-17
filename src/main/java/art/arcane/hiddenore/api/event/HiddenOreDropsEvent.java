@@ -1,5 +1,6 @@
 package art.arcane.hiddenore.api.event;
 
+import art.arcane.hiddenore.api.BreakCause;
 import art.arcane.hiddenore.api.HiddenVein;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -21,10 +22,12 @@ public class HiddenOreDropsEvent extends Event {
   private final ItemStack tool;
   private final HiddenVein vein;
   private final List<ItemStack> drops;
+  private final BreakCause cause;
   private int experience;
   private boolean toInventory;
 
-  public HiddenOreDropsEvent(Player player, Block block, Material brokenType, ItemStack tool, @Nullable HiddenVein vein, List<ItemStack> drops, int experience, boolean toInventory) {
+  public HiddenOreDropsEvent(Player player, Block block, Material brokenType, ItemStack tool, @Nullable HiddenVein vein,
+                             List<ItemStack> drops, int experience, boolean toInventory, BreakCause cause) {
     super(false);
     this.player = player;
     this.block = block;
@@ -34,8 +37,13 @@ public class HiddenOreDropsEvent extends Event {
     this.drops = drops;
     this.experience = experience;
     this.toInventory = toInventory;
+    this.cause = cause;
   }
 
+  /**
+   * The miner, or null when an unattributed explosion broke the block.
+   */
+  @Nullable
   public Player getPlayer() {
     return player;
   }
@@ -48,6 +56,10 @@ public class HiddenOreDropsEvent extends Event {
     return brokenType;
   }
 
+  /**
+   * The tool used, or null when an explosion broke the block.
+   */
+  @Nullable
   public ItemStack getTool() {
     return tool;
   }
@@ -61,6 +73,10 @@ public class HiddenOreDropsEvent extends Event {
     return drops;
   }
 
+  public BreakCause getCause() {
+    return cause;
+  }
+
   public int getExperience() {
     return experience;
   }
@@ -69,10 +85,17 @@ public class HiddenOreDropsEvent extends Event {
     this.experience = Math.max(0, experience);
   }
 
+  /**
+   * Whether the drops go to the player's inventory. Always false for an explosion reward, which
+   * drops on the ground even when a listener asked for inventory delivery.
+   */
   public boolean isToInventory() {
-    return toInventory;
+    return cause == BreakCause.MINED && toInventory;
   }
 
+  /**
+   * Requests inventory delivery. Ignored for an explosion reward.
+   */
   public void setToInventory(boolean toInventory) {
     this.toInventory = toInventory;
   }

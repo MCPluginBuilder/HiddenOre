@@ -1,5 +1,7 @@
 package art.arcane.hiddenore.rules;
 
+import art.arcane.hiddenore.blast.BlastConfig;
+import art.arcane.hiddenore.blast.BlastSource;
 import art.arcane.hiddenore.util.project.ToolTier;
 import art.arcane.hiddenore.vein.VeinConfig;
 import com.google.gson.Gson;
@@ -12,10 +14,13 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 public class MiningRuleManagerTest {
   private static final Gson JSON = new GsonBuilder().serializeSpecialFloatingPointValues().create();
@@ -181,7 +186,8 @@ public class MiningRuleManagerTest {
     secondRule.put("veins_per_chunk", 3.0);
     excessiveCombinedWork.add("drops", JSON.toJsonTree(List.of(firstRule, secondRule)));
     assertInvalid("drops[1]: combined worst-case generation work must be less than or equal to "
-        + MiningRuleManager.MAX_GENERATION_BLOCK_TARGETS_PER_CHUNK + " target blocks per chunk", excessiveCombinedWork);
+        + VeinConfig.DEFAULT_MAX_TARGETS_PER_CHUNK
+        + " target blocks per chunk; raise veins.max_targets_per_chunk to allow more", excessiveCombinedWork);
 
     Map<String, Object> impossibleProbability = validItemRule();
     impossibleProbability.put("veins_per_chunk", 2.0);
@@ -376,6 +382,56 @@ public class MiningRuleManagerTest {
     singularCommand.remove("commands");
     singularCommand.put("command", "say legacy");
     assertInvalid("drops[0].command: unsupported; use 'commands'", configWithRule(singularCommand));
+  }
+
+  @Test
+  public void constructor_withoutABlastSection_exposesDisabledBlastDefaults() {
+    BlastConfig blast = manager(validConfig()).getBlastConfig();
+
+    assertFalse(blast.enabled);
+    assertEquals(0.5, blast.yieldChance, 0.0);
+    assertEquals(ToolTier.IRON_PICKAXE, blast.toolTier);
+    assertEquals(Set.of(BlastSource.TNT, BlastSource.MINECART_TNT), blast.sources);
+  }
+
+  @Test
+  public void constructor_parsesTheBlastSectionAndReportsItsFailuresByPath() {
+    JsonObject config = validConfig();
+    config.add("blast_mining", JSON.toJsonTree(Map.of(
+        "enabled", true, "yield", 0.2, "tool_tier", "diamond_pickaxe", "sources", List.of("CREEPER"))));
+
+    BlastConfig blast = manager(config).getBlastConfig();
+    assertTrue(blast.allows(BlastSource.CREEPER));
+    assertFalse(blast.allows(BlastSource.TNT));
+    assertEquals(0.2, blast.yieldChance, 0.0);
+    assertEquals(ToolTier.DIAMOND_PICKAXE, blast.toolTier);
+
+    JsonObject broken = validConfig();
+    broken.add("blast_mining", JSON.toJsonTree(Map.of("yield", 4)));
+    assertInvalid("blast_mining.yield: must be a finite number between 0 and 1 inclusive", broken);
+  }
+
+  @Test
+  public void constructor_raisingTheTargetBudgetAcceptsWorkTheDefaultBudgetRefuses() {
+    Map<String, Object> first = validItemRule();
+    first.put("veins_per_chunk", 2.0);
+    first.put("vein_min_size", MiningRuleManager.MAX_VEIN_SIZE);
+    first.put("vein_max_size", MiningRuleManager.MAX_VEIN_SIZE);
+    Map<String, Object> second = new LinkedHashMap<>(first);
+    second.put("veins_per_chunk", 3.0);
+    second.put("item", "emerald");
+
+    JsonObject refused = validConfig();
+    refused.add("drops", JSON.toJsonTree(List.of(first, second)));
+    assertThrows(IllegalArgumentException.class, () -> manager(refused));
+
+    JsonObject allowed = validConfig();
+    allowed.add("veins", JSON.toJsonTree(Map.of("max_targets_per_chunk", 2048)));
+    allowed.add("drops", JSON.toJsonTree(List.of(first, second)));
+    MiningRuleManager manager = manager(allowed);
+
+    assertEquals(2048L, manager.getVeinConfig().maxTargetsPerChunk);
+    assertEquals(2, manager.getItemRules(0).size());
   }
 
   private static Map<String, Object> validItemRule() {

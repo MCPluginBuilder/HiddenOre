@@ -26,9 +26,51 @@ public class VeinConfigTest {
 
     assertEquals(VeinConfig.GenerationMode.SEEDED, config.generation);
     assertFalse(config.allowPlacedBlocks);
+    assertEquals(VeinConfig.DEFAULT_MAX_TARGETS_PER_CHUNK, config.maxTargetsPerChunk);
     assertEquals("BLOCK_BEACON_POWER_SELECT", config.discoverySound);
     assertEquals(1.0f, config.discoveryVolume, 0.0f);
     assertEquals(1.0f, config.discoveryPitch, 0.0f);
+  }
+
+  @Test
+  public void constructor_parsesARaisedTargetBudget() {
+    JsonObject raised = section();
+    raised.addProperty("max_targets_per_chunk", 8192);
+
+    assertEquals(8192L, new VeinConfig(raised).maxTargetsPerChunk);
+  }
+
+  @Test
+  public void constructor_acceptsBothEndsOfTheTargetBudgetRange() {
+    JsonObject lowest = section();
+    lowest.addProperty("max_targets_per_chunk", 1);
+    assertEquals(1L, new VeinConfig(lowest).maxTargetsPerChunk);
+
+    JsonObject highest = section();
+    highest.addProperty("max_targets_per_chunk", VeinConfig.HIGHEST_MAX_TARGETS_PER_CHUNK);
+    assertEquals(VeinConfig.HIGHEST_MAX_TARGETS_PER_CHUNK, new VeinConfig(highest).maxTargetsPerChunk);
+  }
+
+  @Test
+  public void constructor_rejectsATargetBudgetOutsideTheSupportedRange() {
+    String expected = "veins.max_targets_per_chunk: must be a whole number from 1 through "
+        + VeinConfig.HIGHEST_MAX_TARGETS_PER_CHUNK;
+
+    JsonObject tooLow = section();
+    tooLow.addProperty("max_targets_per_chunk", 0);
+    assertInvalid(expected, tooLow);
+
+    JsonObject tooHigh = section();
+    tooHigh.addProperty("max_targets_per_chunk", VeinConfig.HIGHEST_MAX_TARGETS_PER_CHUNK + 1);
+    assertInvalid(expected, tooHigh);
+
+    JsonObject fractional = section();
+    fractional.addProperty("max_targets_per_chunk", 1024.5);
+    assertInvalid(expected, fractional);
+
+    JsonObject text = section();
+    text.addProperty("max_targets_per_chunk", "many");
+    assertInvalid(expected, text);
   }
 
   @Test

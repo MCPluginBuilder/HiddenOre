@@ -8,6 +8,7 @@ import org.bukkit.World;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,7 @@ import java.util.UUID;
 
 public final class SeededVeinGenerator {
   private static final int CACHE_LIMIT = 4096;
+  private static final long CACHED_POSITION_LIMIT = 1_000_000L;
   private static final int[][] WALK_DIRECTIONS = {
       {1, 0, 0}, {-1, 0, 0},
       {0, 1, 0}, {0, -1, 0},
@@ -23,7 +25,7 @@ public final class SeededVeinGenerator {
   };
 
   private final List<SeededRule> rules;
-  private final Map<UUID, Map<Long, ChunkVeins>> cache = new HashMap<>();
+  private final Map<UUID, WorldCache> cache = new HashMap<>();
 
   public SeededVeinGenerator(List<ItemDropRule> rules) {
     this.rules = prepareRules(rules);
@@ -32,20 +34,14 @@ public final class SeededVeinGenerator {
   public ChunkVeins get(World world, int chunkX, int chunkZ) {
     long chunkKey = (((long) chunkX) << 32) ^ (chunkZ & 0xFFFFFFFFL);
     synchronized (cache) {
-      Map<Long, ChunkVeins> worldCache = cache.computeIfAbsent(world.getUID(), ignored ->
-          new LinkedHashMap<>(256, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<Long, ChunkVeins> eldest) {
-              return size() > CACHE_LIMIT;
-            }
-          });
-      ChunkVeins cached = worldCache.get(chunkKey);
+      WorldCache worldCache = cache.computeIfAbsent(world.getUID(), ignored -> new WorldCache());
+      ChunkVeins cached = worldCache.chunks.get(chunkKey);
       if (cached != null) {
         return cached;
       }
       HiddenOreTelemetry.countVeinChunkCompute();
       ChunkVeins computed = compute(world.getSeed(), world.getMinHeight(), world.getMaxHeight(), chunkX, chunkZ);
-      worldCache.put(chunkKey, computed);
+      worldCache.store(chunkKey, computed);
       return computed;
     }
   }
@@ -53,8 +49,18 @@ public final class SeededVeinGenerator {
   public int cachedChunkCount() {
     synchronized (cache) {
       int total = 0;
-      for (Map<Long, ChunkVeins> worldCache : cache.values()) {
-        total += worldCache.size();
+      for (WorldCache worldCache : cache.values()) {
+        total += worldCache.chunks.size();
+      }
+      return total;
+    }
+  }
+
+  public long cachedPositionCount() {
+    synchronized (cache) {
+      long total = 0L;
+      for (WorldCache worldCache : cache.values()) {
+        total += worldCache.positions;
       }
       return total;
     }
@@ -63,6 +69,33 @@ public final class SeededVeinGenerator {
   public void clearWorld(UUID worldId) {
     synchronized (cache) {
       cache.remove(worldId);
+    }
+  }
+
+  /**
+   * Holds one world's computed chunks. A dense {@code veins.max_targets_per_chunk} makes each chunk
+   * far heavier, so the cache is bounded by the positions it holds as well as by chunk count.
+   */
+  static final class WorldCache {
+    private final LinkedHashMap<Long, ChunkVeins> chunks = new LinkedHashMap<>(256, 0.75f, true);
+    private long positions;
+
+    private void store(long chunkKey, ChunkVeins veins) {
+      ChunkVeins replaced = chunks.put(chunkKey, veins);
+      if (replaced != null) {
+        positions -= replaced.size();
+      }
+      positions += veins.size();
+      evict();
+    }
+
+    private void evict() {
+      Iterator<Map.Entry<Long, ChunkVeins>> eldestFirst = chunks.entrySet().iterator();
+      while (eldestFirst.hasNext() && chunks.size() > 1
+          && (chunks.size() > CACHE_LIMIT || positions > CACHED_POSITION_LIMIT)) {
+        positions -= eldestFirst.next().getValue().size();
+        eldestFirst.remove();
+      }
     }
   }
 

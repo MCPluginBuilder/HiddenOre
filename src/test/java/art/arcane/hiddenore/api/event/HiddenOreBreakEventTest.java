@@ -1,10 +1,13 @@
 package art.arcane.hiddenore.api.event;
 
 import art.arcane.hiddenore.api.BlockOrigin;
+import art.arcane.hiddenore.api.BreakCause;
 import org.bukkit.Material;
 import org.bukkit.event.Cancellable;
 import org.bukkit.event.HandlerList;
 import org.junit.Test;
+
+import java.util.ArrayList;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -55,7 +58,27 @@ public class HiddenOreBreakEventTest {
     assertNotSame(handlers, HiddenOreDropsEvent.getHandlerList());
   }
 
+  @Test
+  public void breakEvent_reportsWhetherTheBlockWasMinedOrBlownUp() {
+    assertEquals(BreakCause.MINED, event(BlockOrigin.PRESUMED_GENERATED).getCause());
+    assertEquals(BreakCause.EXPLODED, new HiddenOreBreakEvent(null, null, Material.STONE, null,
+        BlockOrigin.PRESUMED_GENERATED, BreakCause.EXPLODED).getCause());
+  }
+
+  @Test
+  public void dropsEvent_reportsTheSameCauseAndToleratesAnUnattributedBlast() {
+    HiddenOreDropsEvent drops = new HiddenOreDropsEvent(null, null, Material.STONE, null, null,
+        new ArrayList<>(), 3, false, BreakCause.EXPLODED);
+
+    assertEquals(BreakCause.EXPLODED, drops.getCause());
+    assertNull(drops.getPlayer());
+    assertNull(drops.getTool());
+    assertNull(drops.getVein());
+    assertEquals(3, drops.getExperience());
+    assertFalse(drops.isToInventory());
+  }
+
   private static HiddenOreBreakEvent event(BlockOrigin origin) {
-    return new HiddenOreBreakEvent(null, null, Material.DEEPSLATE_DIAMOND_ORE, null, origin);
+    return new HiddenOreBreakEvent(null, null, Material.DEEPSLATE_DIAMOND_ORE, null, origin, BreakCause.MINED);
   }
 }

@@ -1,7 +1,9 @@
 package art.arcane.hiddenore;
 
+import art.arcane.hiddenore.blast.BlastSource;
 import art.arcane.hiddenore.generation.GenerationRules;
 import art.arcane.hiddenore.rules.MiningRuleManager;
+import art.arcane.hiddenore.util.project.ToolTier;
 import art.arcane.hiddenore.vein.VeinConfig;
 import art.arcane.volmlib.util.config.ConfigEditorDocument;
 import com.google.gson.JsonArray;
@@ -16,6 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -45,6 +48,11 @@ public class HiddenOreConfigTest {
     assertEquals(Material.COBBLESTONE, rules.getGuaranteedDrop(Material.STONE));
     assertEquals(Material.COBBLED_DEEPSLATE, rules.getGuaranteedDrop(Material.DEEPSLATE));
     assertEquals(VeinConfig.GenerationMode.SEEDED, rules.getVeinConfig().generation);
+    assertFalse(rules.getBlastConfig().enabled);
+    assertFalse(rules.getBlastConfig().allows(BlastSource.TNT));
+    assertEquals(0.5, rules.getBlastConfig().yieldChance, 0.0);
+    assertEquals(ToolTier.IRON_PICKAXE, rules.getBlastConfig().toolTier);
+    assertEquals(Set.of(BlastSource.TNT, BlastSource.MINECART_TNT), rules.getBlastConfig().sources);
     assertFalse(generation.enabled());
     assertTrue(generation.worldExceptions().containsKey("minecraft:the_end"));
     assertEquals(Material.NETHERRACK, generation.worldExceptions().get("minecraft:the_nether")

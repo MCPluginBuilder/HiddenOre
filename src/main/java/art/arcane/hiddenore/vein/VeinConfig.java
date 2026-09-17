@@ -10,9 +10,12 @@ public final class VeinConfig {
   private static final float DEFAULT_DISCOVERY_PITCH = 1.0f;
   private static final double MIN_DISCOVERY_PITCH = 0.5;
   private static final double MAX_DISCOVERY_PITCH = 2.0;
+  public static final long DEFAULT_MAX_TARGETS_PER_CHUNK = 1024L;
+  public static final long HIGHEST_MAX_TARGETS_PER_CHUNK = 16384L;
 
   public final GenerationMode generation;
   public final boolean allowPlacedBlocks;
+  public final long maxTargetsPerChunk;
   public final String discoverySound;
   public final float discoveryVolume;
   public final float discoveryPitch;
@@ -23,6 +26,7 @@ public final class VeinConfig {
     }
     generation = parseGeneration(section.get("generation"));
     allowPlacedBlocks = parseAllowPlacedBlocks(section.get("allow_placed_blocks"));
+    maxTargetsPerChunk = parseMaxTargetsPerChunk(section.get("max_targets_per_chunk"));
 
     JsonElement rawSoundSection = section.get("discovery_sound");
     if (rawSoundSection == null) {
@@ -64,6 +68,27 @@ public final class VeinConfig {
       throw invalid("veins.allow_placed_blocks", "expected true or false");
     }
     return primitive.getAsBoolean();
+  }
+
+  private static long parseMaxTargetsPerChunk(JsonElement raw) {
+    if (raw == null) {
+      return DEFAULT_MAX_TARGETS_PER_CHUNK;
+    }
+    if (!(raw instanceof JsonPrimitive primitive) || !primitive.isNumber()) {
+      throw invalidMaxTargets();
+    }
+
+    double value = primitive.getAsDouble();
+    if (!Double.isFinite(value) || value != Math.rint(value) || value < 1.0
+        || value > HIGHEST_MAX_TARGETS_PER_CHUNK) {
+      throw invalidMaxTargets();
+    }
+    return (long) value;
+  }
+
+  private static IllegalArgumentException invalidMaxTargets() {
+    return invalid("veins.max_targets_per_chunk", "must be a whole number from 1 through "
+        + HIGHEST_MAX_TARGETS_PER_CHUNK);
   }
 
   private static String parseSound(JsonElement raw) {

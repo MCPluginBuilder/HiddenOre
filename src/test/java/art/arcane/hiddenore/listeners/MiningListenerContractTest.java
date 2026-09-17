@@ -9,6 +9,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDropItemEvent;
 import org.bukkit.inventory.ItemStack;
+import art.arcane.hiddenore.util.project.MiningUtil;
 import org.junit.Test;
 
 import java.lang.reflect.Method;
@@ -103,7 +104,7 @@ public class MiningListenerContractTest {
 
   @Test
   public void commandGroups_preserveConfiguredTargetRuns() {
-    List<MiningListener.CommandExec> commands = List.of(
+    List<CommandRewards.CommandExec> commands = List.of(
         command("player-one", ItemDropRule.ExecutionTarget.PLAYER),
         command("console-one", ItemDropRule.ExecutionTarget.CONSOLE),
         command("console-two", ItemDropRule.ExecutionTarget.CONSOLE),
@@ -112,20 +113,20 @@ public class MiningListenerContractTest {
         command("console-three", ItemDropRule.ExecutionTarget.CONSOLE)
     );
 
-    assertEquals(1, MiningListener.commandGroupEnd(commands, 0));
-    assertEquals(3, MiningListener.commandGroupEnd(commands, 1));
-    assertEquals(5, MiningListener.commandGroupEnd(commands, 3));
-    assertEquals(6, MiningListener.commandGroupEnd(commands, 5));
+    assertEquals(1, CommandRewards.commandGroupEnd(commands, 0));
+    assertEquals(3, CommandRewards.commandGroupEnd(commands, 1));
+    assertEquals(5, CommandRewards.commandGroupEnd(commands, 3));
+    assertEquals(6, CommandRewards.commandGroupEnd(commands, 5));
   }
 
   @Test
   public void commandGroups_rejectAnEmptyStartBoundary() {
-    assertThrows(IndexOutOfBoundsException.class, () -> MiningListener.commandGroupEnd(List.of(), 0));
+    assertThrows(IndexOutOfBoundsException.class, () -> CommandRewards.commandGroupEnd(List.of(), 0));
   }
 
   @Test
   public void consoleSalvage_skipsPlayerGroupsAndKeepsConsoleOrder() {
-    List<MiningListener.CommandExec> commands = List.of(
+    List<CommandRewards.CommandExec> commands = List.of(
         command("player-one", ItemDropRule.ExecutionTarget.PLAYER),
         command("console-one", ItemDropRule.ExecutionTarget.CONSOLE),
         command("console-two", ItemDropRule.ExecutionTarget.CONSOLE),
@@ -134,7 +135,7 @@ public class MiningListenerContractTest {
         command("console-three", ItemDropRule.ExecutionTarget.CONSOLE)
     );
 
-    MiningListener.ConsoleSalvage salvage = MiningListener.salvageConsoleCommands(commands, 0);
+    CommandRewards.ConsoleSalvage salvage = CommandRewards.salvageConsoleCommands(commands, 0);
 
     assertEquals(2, salvage.skippedPlayerGroups());
     assertEquals(3, salvage.commands().size());
@@ -145,13 +146,13 @@ public class MiningListenerContractTest {
 
   @Test
   public void consoleSalvage_respectsStartIndexWithoutRerunningEarlierGroups() {
-    List<MiningListener.CommandExec> commands = List.of(
+    List<CommandRewards.CommandExec> commands = List.of(
         command("console-one", ItemDropRule.ExecutionTarget.CONSOLE),
         command("player-one", ItemDropRule.ExecutionTarget.PLAYER),
         command("console-two", ItemDropRule.ExecutionTarget.CONSOLE)
     );
 
-    MiningListener.ConsoleSalvage salvage = MiningListener.salvageConsoleCommands(commands, 1);
+    CommandRewards.ConsoleSalvage salvage = CommandRewards.salvageConsoleCommands(commands, 1);
 
     assertEquals(1, salvage.skippedPlayerGroups());
     assertEquals(1, salvage.commands().size());
@@ -160,12 +161,12 @@ public class MiningListenerContractTest {
 
   @Test
   public void consoleSalvage_returnsEmptyWhenOnlyPlayerGroupsRemain() {
-    List<MiningListener.CommandExec> commands = List.of(
+    List<CommandRewards.CommandExec> commands = List.of(
         command("player-one", ItemDropRule.ExecutionTarget.PLAYER),
         command("player-two", ItemDropRule.ExecutionTarget.PLAYER)
     );
 
-    MiningListener.ConsoleSalvage salvage = MiningListener.salvageConsoleCommands(commands, 0);
+    CommandRewards.ConsoleSalvage salvage = CommandRewards.salvageConsoleCommands(commands, 0);
 
     assertEquals(1, salvage.skippedPlayerGroups());
     assertTrue(salvage.commands().isEmpty());
@@ -173,11 +174,11 @@ public class MiningListenerContractTest {
 
   @Test
   public void consoleSalvage_handlesExhaustedChain() {
-    List<MiningListener.CommandExec> commands = List.of(
+    List<CommandRewards.CommandExec> commands = List.of(
         command("player-one", ItemDropRule.ExecutionTarget.PLAYER)
     );
 
-    MiningListener.ConsoleSalvage salvage = MiningListener.salvageConsoleCommands(commands, 1);
+    CommandRewards.ConsoleSalvage salvage = CommandRewards.salvageConsoleCommands(commands, 1);
 
     assertEquals(0, salvage.skippedPlayerGroups());
     assertTrue(salvage.commands().isEmpty());
@@ -185,10 +186,10 @@ public class MiningListenerContractTest {
 
   @Test
   public void experienceRoll_acceptsMaximumIntegerWithoutOverflow() {
-    assertEquals(0, MiningListener.rollInclusiveExperience(0));
-    assertEquals(0, MiningListener.rollInclusiveExperience(-1));
+    assertEquals(0, MiningUtil.rollInclusiveExperience(0));
+    assertEquals(0, MiningUtil.rollInclusiveExperience(-1));
     for (int iteration = 0; iteration < 100; iteration++) {
-      int rolled = MiningListener.rollInclusiveExperience(Integer.MAX_VALUE);
+      int rolled = MiningUtil.rollInclusiveExperience(Integer.MAX_VALUE);
       assertTrue(rolled >= 0);
     }
   }
@@ -214,8 +215,8 @@ public class MiningListenerContractTest {
     assertEquals(name, ignoreCancelled, annotation.ignoreCancelled());
   }
 
-  private static MiningListener.CommandExec command(String command, ItemDropRule.ExecutionTarget target) {
-    return new MiningListener.CommandExec(command, target);
+  private static CommandRewards.CommandExec command(String command, ItemDropRule.ExecutionTarget target) {
+    return new CommandRewards.CommandExec(command, target);
   }
 
   private static final class TestItemStack extends ItemStack {

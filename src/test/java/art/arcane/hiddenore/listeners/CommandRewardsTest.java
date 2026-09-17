@@ -13,7 +13,7 @@ import java.util.UUID;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
-public class MiningListenerRewardCommandTest {
+public class CommandRewardsTest {
   private static final UUID PLAYER = UUID.fromString("00000000-0000-0000-0000-00000000cd02");
 
   private static PlaceholderApiSandbox sandbox;
@@ -36,7 +36,7 @@ public class MiningListenerRewardCommandTest {
 
   @Test
   public void builtInPass_substitutesEveryDocumentedToken() {
-    String resolved = MiningListener.applyBuiltInPlaceholders(
+    String resolved = CommandRewards.applyBuiltInPlaceholders(
         "give %player% diamond %uuid% %world% %x% %y% %z%", "Psycho", PLAYER.toString(), -12, 64, 300, "world_nether");
 
     assertEquals("give Psycho diamond " + PLAYER + " world_nether -12 64 300", resolved);
@@ -44,7 +44,7 @@ public class MiningListenerRewardCommandTest {
 
   @Test
   public void builtInPass_leavesForeignPlaceholdersIntactForPlaceholderApi() {
-    String resolved = MiningListener.applyBuiltInPlaceholders(
+    String resolved = CommandRewards.applyBuiltInPlaceholders(
         "eco give %player% %vault_eco_balance%", "Psycho", PLAYER.toString(), 0, 0, 0, "world");
 
     assertEquals("eco give Psycho %vault_eco_balance%", resolved);
@@ -52,8 +52,8 @@ public class MiningListenerRewardCommandTest {
 
   @Test
   public void builtInPass_treatsMissingCommandAndMissingWorldAsEmptyText() {
-    assertEquals("", MiningListener.applyBuiltInPlaceholders(null, "Psycho", PLAYER.toString(), 0, 0, 0, "world"));
-    assertEquals("say ", MiningListener.applyBuiltInPlaceholders("say %world%", "Psycho", PLAYER.toString(), 0, 0, 0, ""));
+    assertEquals("", CommandRewards.applyBuiltInPlaceholders(null, "Psycho", PLAYER.toString(), 0, 0, 0, "world"));
+    assertEquals("say ", CommandRewards.applyBuiltInPlaceholders("say %world%", "Psycho", PLAYER.toString(), 0, 0, 0, ""));
   }
 
   @Test
@@ -94,7 +94,7 @@ public class MiningListenerRewardCommandTest {
   }
 
   private static String applyCommandPlaceholders(String raw, Object player, Object location) throws Exception {
-    Method apply = sandbox.load("art.arcane.hiddenore.listeners.MiningListener")
+    Method apply = sandbox.load("art.arcane.hiddenore.listeners.CommandRewards")
         .getDeclaredMethod("applyCommandPlaceholders", String.class, sandbox.load("org.bukkit.entity.Player"),
             sandbox.load("org.bukkit.Location"));
     apply.setAccessible(true);

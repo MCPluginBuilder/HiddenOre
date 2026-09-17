@@ -1,5 +1,7 @@
 package art.arcane.hiddenore.vein;
 
+import art.arcane.volmlib.util.bukkit.ChunkPositionSet;
+
 import java.util.Collection;
 import java.util.Map;
 
@@ -25,6 +27,25 @@ public final class ChunkVeins {
   public int[] positionsOf(int veinId) {
     int[] positions = positionsByVein.get(veinId);
     return positions == null ? new int[0] : positions;
+  }
+
+  /**
+   * Whether no other block of this vein has been claimed yet, given the chunk's claimed positions.
+   */
+  public boolean isFirstOfVein(int veinId, int packedPosition, int[] claimedPositions) {
+    if (claimedPositions.length == 0) {
+      return true;
+    }
+    for (int position : positionsOf(veinId)) {
+      if (position != packedPosition && ChunkPositionSet.contains(claimedPositions, position)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public int size() {
+    return blocksByPosition.size();
   }
 
   public boolean isEmpty() {

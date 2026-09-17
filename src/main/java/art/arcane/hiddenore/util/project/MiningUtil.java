@@ -28,6 +28,13 @@ public final class MiningUtil {
     return applyFortuneRoll(baseAmount, roll);
   }
 
+  public static int rollInclusiveExperience(int maximum) {
+    if (maximum <= 0) {
+      return 0;
+    }
+    return (int) ThreadLocalRandom.current().nextLong((long) maximum + 1L);
+  }
+
   static int applyFortuneRoll(int baseAmount, int roll) {
     return baseAmount * Math.max(1, roll);
   }

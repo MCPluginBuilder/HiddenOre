@@ -16,6 +16,7 @@ import art.arcane.volmlib.util.localization.VolmitLocales;
 import art.arcane.hiddenore.api.HiddenOreAPI;
 import art.arcane.hiddenore.api.HiddenOreService;
 import art.arcane.hiddenore.generation.GenerationRules;
+import art.arcane.hiddenore.listeners.BlastMiningListener;
 import art.arcane.hiddenore.listeners.MiningListener;
 import art.arcane.hiddenore.listeners.PlacementListener;
 import art.arcane.hiddenore.listeners.WorldLifecycleListener;
@@ -39,6 +40,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import io.github.slimjar.app.builder.SpigotApplicationBuilder;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -63,6 +65,8 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   // bstats.org plugin id
   private static final int BSTATS_PLUGIN_ID = 27610;
   private static final long LOG_THROTTLE_NANOS = TimeUnit.MINUTES.toNanos(1L);
+  private static final String PLACED_BLOCKS_KEY = "placed_blocks";
+  private static final String CONSUMED_VEINS_KEY = "consumed_veins";
   private final Set<UUID> debugPlayers = ConcurrentHashMap.newKeySet();
   private final ConcurrentMap<String, LogThrottle> logThrottles = new ConcurrentHashMap<>();
   private final AtomicLong configurationRevision = new AtomicLong();
@@ -83,6 +87,8 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
   // HiddenOreMetrics owns all bstats types; never reference them from this class (slimjar link trap)
   private HiddenOreMetrics metrics;
   private volatile RuntimeState runtimeState;
+  private NamespacedKey placedBlocksKey;
+  private NamespacedKey consumedVeinsKey;
   private volatile String appliedConfigToml;
   private volatile boolean draining;
   private boolean serviceRegistered;
@@ -108,8 +114,10 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
         saveResource("hiddenore.toml", false);
       }
       configWatcher = new ConfigWatcher(this);
-      placedBlocks = new ChunkPositionSet(this, "placed_blocks");
-      consumedVeins = new ChunkPositionSet(this, "consumed_veins");
+      placedBlocksKey = new NamespacedKey(this, PLACED_BLOCKS_KEY);
+      consumedVeinsKey = new NamespacedKey(this, CONSUMED_VEINS_KEY);
+      placedBlocks = new ChunkPositionSet(this, PLACED_BLOCKS_KEY);
+      consumedVeins = new ChunkPositionSet(this, CONSUMED_VEINS_KEY);
       api = new HiddenOreAPI(this);
       generationRules = new GenerationRules(this);
       remoteLanguages = RemoteLanguageCatalog.load(new RemoteLanguageCatalog.Options(
@@ -144,6 +152,7 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
               (key, arguments) -> getMessages().directorText(key, arguments))));
       generationRules.start();
       getServer().getPluginManager().registerEvents(new MiningListener(this), this);
+      getServer().getPluginManager().registerEvents(new BlastMiningListener(this), this);
       getServer().getPluginManager().registerEvents(new PlacementListener(this), this);
       getServer().getPluginManager().registerEvents(new WorldLifecycleListener(this), this);
       commandService = new HiddenOreCommandService(this);
@@ -446,6 +455,21 @@ public class HiddenOre extends JavaPlugin implements ReloadAware {
 
   public ChunkPositionSet getConsumedVeins() {
     return consumedVeins;
+  }
+
+  /**
+   * The chunk key backing {@link #getPlacedBlocks()}, for callers that rewrite a whole chunk's
+   * positions in one write instead of one position at a time.
+   */
+  public NamespacedKey getPlacedBlocksKey() {
+    return placedBlocksKey;
+  }
+
+  /**
+   * The chunk key backing {@link #getConsumedVeins()}.
+   */
+  public NamespacedKey getConsumedVeinsKey() {
+    return consumedVeinsKey;
   }
 
   public HiddenOreAPI getApi() {

@@ -1,6 +1,7 @@
 package art.arcane.hiddenore.listeners;
 
 import art.arcane.hiddenore.api.BlockOrigin;
+import art.arcane.hiddenore.api.BreakCause;
 import art.arcane.hiddenore.api.event.HiddenOreBreakEvent;
 import art.arcane.hiddenore.api.event.HiddenOreDropsEvent;
 import org.bukkit.Material;
@@ -28,6 +29,7 @@ import java.util.logging.Logger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -110,7 +112,8 @@ public class IntegrationEventGuardTest {
     CapturingLogger logger = new CapturingLogger();
     IntegrationEventGuard guard = new IntegrationEventGuard(logger.logger());
 
-    assertFalse(guard.isBreakVetoed(null, null, Material.DEEPSLATE_DIAMOND_ORE, null, BlockOrigin.PRESUMED_GENERATED));
+    assertFalse(guard.isBreakVetoed(null, null, Material.DEEPSLATE_DIAMOND_ORE, null, BlockOrigin.PRESUMED_GENERATED,
+        BreakCause.MINED));
 
     assertEquals(0L, guard.breakDispatchFaults());
     assertTrue(logger.records().isEmpty());
@@ -123,7 +126,7 @@ public class IntegrationEventGuardTest {
     IntegrationEventGuard guard = new IntegrationEventGuard(logger.logger());
 
     assertFalse(guard.isBreakVetoed(null, null, Material.DEEPSLATE_DIAMOND_ORE,
-        new TestItemStack(Material.DIAMOND_PICKAXE, 1), BlockOrigin.PRESUMED_GENERATED));
+        new TestItemStack(Material.DIAMOND_PICKAXE, 1), BlockOrigin.PRESUMED_GENERATED, BreakCause.MINED));
 
     assertEquals(1L, guard.breakDispatchFaults());
     assertEquals(1L, guard.unidentifiedListeners());
@@ -403,12 +406,43 @@ public class IntegrationEventGuardTest {
     });
   }
 
+  @Test
+  public void isBreakVetoed_dispatchesAnExplosionWithoutAToolWhenSomebodyIsListening() {
+    registerOnBreak(nullPluginRegistration());
+    List<HiddenOreBreakEvent> dispatched = new ArrayList<>();
+    IntegrationEventGuard guard = new IntegrationEventGuard(new CapturingLogger().logger(), dispatched::add);
+
+    assertFalse(guard.isBreakVetoed(null, null, Material.STONE, null, BlockOrigin.PRESUMED_GENERATED,
+        BreakCause.EXPLODED));
+
+    assertEquals(1, dispatched.size());
+    assertEquals(BreakCause.EXPLODED, dispatched.get(0).getCause());
+    assertNull(dispatched.get(0).getTool());
+    assertNull(dispatched.get(0).getPlayer());
+  }
+
+  @Test
+  public void isBreakVetoed_clonesTheToolItIsGivenSoListenersCannotEditTheRealOne() {
+    registerOnBreak(nullPluginRegistration());
+    List<HiddenOreBreakEvent> dispatched = new ArrayList<>();
+    IntegrationEventGuard guard = new IntegrationEventGuard(new CapturingLogger().logger(), dispatched::add);
+    TestItemStack tool = new TestItemStack(Material.DIAMOND_PICKAXE, 1);
+
+    assertFalse(guard.isBreakVetoed(null, null, Material.STONE, tool, BlockOrigin.PRESUMED_GENERATED,
+        BreakCause.MINED));
+
+    assertEquals(1, dispatched.size());
+    assertNotSame(tool, dispatched.get(0).getTool());
+    assertEquals(BreakCause.MINED, dispatched.get(0).getCause());
+  }
+
   private static Plugin pluginProxy(java.lang.reflect.InvocationHandler handler) {
     return (Plugin) Proxy.newProxyInstance(Plugin.class.getClassLoader(), new Class<?>[]{Plugin.class}, handler);
   }
 
   private static HiddenOreBreakEvent breakEvent() {
-    return new HiddenOreBreakEvent(null, null, Material.DEEPSLATE_DIAMOND_ORE, null, BlockOrigin.PRESUMED_GENERATED);
+    return new HiddenOreBreakEvent(null, null, Material.DEEPSLATE_DIAMOND_ORE, null, BlockOrigin.PRESUMED_GENERATED,
+        BreakCause.MINED);
   }
 
   private record Registration(HandlerList handlers, RegisteredListener listener) {

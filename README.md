@@ -61,6 +61,8 @@ Command rules support a probability, Y range, default execution target, and one 
 
 Available built-in placeholders are `%player%`, `%uuid%`, `%world%`, `%x%`, `%y%`, and `%z%`. After the built-in pass, the whole command is handed to PlaceholderAPI when it is installed, so `eco give %player% %vault_eco_balance%` resolves. Rewards fire on an accepted block break, never per tick.
 
+Blast mining, off by default under `[blast_mining]`, extends the same rewards to blocks destroyed by an explosion. A `yield` chance prices one charge against one pickaxe, a configured `tool_tier` stands in for the tool an explosion does not carry, and `sources` selects which explosions qualify. Rewards credit the igniter of primed TNT and the shooter of a fireball where there is one; they always drop on the ground, never use Fortune, and roll command rules once per explosion. Every explosion clears its destroyed positions from placement tracking whether or not the feature is enabled.
+
 `suppress_block_drop_on_custom_drop` controls whether an item or command reward replaces the normal configured base-block drop. `auto_pickup_drops` delivers rewards to the player's inventory and drops only inventory overflow at the mined block.
 
 ## PlaceholderAPI

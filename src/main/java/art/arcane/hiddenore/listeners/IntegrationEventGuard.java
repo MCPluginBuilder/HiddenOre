@@ -1,6 +1,7 @@
 package art.arcane.hiddenore.listeners;
 
 import art.arcane.hiddenore.api.BlockOrigin;
+import art.arcane.hiddenore.api.BreakCause;
 import art.arcane.hiddenore.api.event.HiddenOreBreakEvent;
 import art.arcane.hiddenore.api.event.HiddenOreDropsEvent;
 import org.bukkit.Bukkit;
@@ -45,11 +46,13 @@ final class IntegrationEventGuard {
     this.dispatcher = dispatcher;
   }
 
-  boolean isBreakVetoed(Player player, Block block, Material brokenType, ItemStack tool, BlockOrigin origin) {
+  boolean isBreakVetoed(Player player, Block block, Material brokenType, ItemStack tool, BlockOrigin origin,
+                        BreakCause cause) {
     if (!hasListeners(HiddenOreBreakEvent.getHandlerList())) {
       return false;
     }
-    return dispatchBreak(new HiddenOreBreakEvent(player, block, brokenType, tool.clone(), origin));
+    return dispatchBreak(new HiddenOreBreakEvent(player, block, brokenType, tool == null ? null : tool.clone(),
+        origin, cause));
   }
 
   boolean dispatchBreak(HiddenOreBreakEvent event) {
