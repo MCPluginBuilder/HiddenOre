@@ -23,7 +23,7 @@ public final class SplashScreen {
     String releaseTrain = SplashScreenSupport.releaseTrain(pluginVersion);
     String serverVersion = SplashScreenSupport.serverVersionWithoutMcSuffix();
     String startupDate = SplashScreenSupport.startupDate();
-    String supportedMcVersion = "26.1.2 - 26.2";
+    String supportedMcVersion = "26.1.2 - 26.3";
 
     String splash =
         "\n"
