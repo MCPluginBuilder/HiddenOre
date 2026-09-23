@@ -1,0 +1,22 @@
+language = "en_US"
+metrics = false
+auto_pickup_drops = true
+suppress_block_drop_on_custom_drop = true
+[ore-removal]
+enabled = false
+[blocks.stone]
+drop = "cobblestone"
+[veins]
+generation = "pure_random"
+allow_placed_blocks = false
+max_targets_per_chunk = 256
+[[drops]]
+item = "diamond"
+veins_per_chunk = 1.0
+vein_min_size = 256
+vein_max_size = 256
+min_y = 100
+max_y = 100
+fortune_multiplier = false
+tool_tiers = ["IRON_PICKAXE"]
+exp_drop = 0

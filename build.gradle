@@ -247,3 +247,30 @@ tasks.register('compilePaper263Compatibility', JavaCompile) {
 tasks.named('check').configure {
     dependsOn(tasks.named('compilePaper263Compatibility'))
 }
+
+sourceSets {
+    gameplayFixture {
+        java.srcDir('src/test/gameplay/fixture/java')
+        resources.srcDir('src/test/gameplay/fixture/resources')
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    }
+}
+
+tasks.register('gameplayFixtureJar', Jar) {
+    dependsOn('gameplayFixtureClasses')
+    archiveBaseName.set('HiddenOreGameplayFixture')
+    archiveVersion.set('')
+    from(sourceSets.gameplayFixture.output)
+}
+
+tasks.named('check').configure {
+    dependsOn('gameplayFixtureJar')
+}
+
+tasks.register('gameplayContractTest', Exec) {
+    commandLine('node', '--test', 'src/test/gameplay/persistence.test.mjs')
+}
+
+tasks.named('check').configure {
+    dependsOn('gameplayContractTest')
+}

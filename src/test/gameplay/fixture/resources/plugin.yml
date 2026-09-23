@@ -1,0 +1,11 @@
+name: HiddenOreGameplayFixture
+version: '1.0'
+main: art.arcane.hiddenore.test.PersistenceFixture
+api-version: '26.1'
+depend: [HiddenOre]
+commands:
+  hiddenoreqa:
+    permission: hiddenoreqa.admin
+permissions:
+  hiddenoreqa.admin:
+    default: op
